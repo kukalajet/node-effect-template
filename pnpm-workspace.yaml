@@ -1,0 +1,31 @@
+packages:
+  - apps/*
+  - packages/*
+
+catalog:
+  '@effect/platform-node': 4.0.6
+  '@effect/sql-pg': 4.0.6
+  '@effect/vitest': 4.0.6
+  drizzle-kit: 1.0.0-rc.5
+  drizzle-orm: 1.0.0-rc.5
+  effect: 4.0.6
+
+# Keep one Vite and one Vitest copy so `vp test` and @effect/vitest share a
+# runner. The versions must match `vp toolchain` for the installed vite-plus.
+overrides:
+  vite@*: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vitest@*: 5.0.5
+
+# @effect/platform-node declares redis as a required peer, but only its
+# NodeRedis module uses it.
+packageExtensions:
+  '@effect/platform-node@4':
+    peerDependenciesMeta:
+      redis:
+        optional: true
+
+# The vite override above points at vite-plus-core, whose version number does
+# not match the vite range that vitest declares.
+peerDependencyRules:
+  allowedVersions:
+    vite: '*'
