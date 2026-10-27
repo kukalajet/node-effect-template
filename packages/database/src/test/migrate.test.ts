@@ -1,7 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Cause, Effect, Exit, Logger } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Logger } from "effect";
 import { SqlError } from "effect/sql";
+
+import { runtimeRoleConfig } from "@node-effect/config";
 
 import { reportMigrationFailure } from "../migrate.ts";
 
@@ -93,11 +95,17 @@ describe("migration failure reporting", () => {
 
   it.effect("keeps the details of a failure that is not a database's", () =>
     Effect.gen(function* () {
-      const { output } = yield* runMigration(
-        Effect.fail(new Error("MISSING_CONFIGURATION")),
+      // How `migrate` fails without its configuration: the operator must see
+      // which variable is missing.
+      const missingConfiguration = runtimeRoleConfig.parse(
+        ConfigProvider.fromEnv({ env: {} }),
       );
 
-      assert.match(output, /MISSING_CONFIGURATION/);
+      const { output } = yield* runMigration(
+        Effect.asVoid(missingConfiguration),
+      );
+
+      assert.match(output, /APP_DATABASE_USER/);
     }),
   );
 

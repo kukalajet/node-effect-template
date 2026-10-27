@@ -216,7 +216,7 @@ describe("processWorkerWorkPass", () => {
       let calls = 0;
 
       yield* processWorkerWorkPass(timings.passTimeoutMs).pipe(
-        Effect.provide(
+        Effect.provide([
           listingWith(() =>
             Effect.sync(() => {
               calls += 1;
@@ -224,8 +224,8 @@ describe("processWorkerWorkPass", () => {
               return [];
             }),
           ),
-        ),
-        Effect.provide(Logger.layer([])),
+          Logger.layer([]),
+        ]),
       );
 
       assert.strictEqual(calls, 1);

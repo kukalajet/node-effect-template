@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { ConfigProvider, Effect, Exit, Redacted } from "effect";
+import { ConfigProvider, Effect, Exit, Layer, Redacted } from "effect";
 
 import { AppConfig, appConfig } from "@node-effect/config";
 
@@ -129,10 +129,13 @@ describe("AppConfig.layer", () => {
       assert.strictEqual(String(config.databaseUrl), "<redacted>");
       assert.notInclude(JSON.stringify(config), "secret");
     }).pipe(
-      Effect.provide(AppConfig.layer),
       Effect.provide(
-        ConfigProvider.layer(
-          environment({ DATABASE_URL: "postgres://secret@test" }),
+        AppConfig.layer.pipe(
+          Layer.provide(
+            ConfigProvider.layer(
+              environment({ DATABASE_URL: "postgres://secret@test" }),
+            ),
+          ),
         ),
       ),
     ),

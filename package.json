@@ -20,15 +20,16 @@
     "fmt": "vp fmt",
     "lint": "vp lint",
     "fix": "vp check --fix",
-    "typecheck": "tsc",
+    "typecheck": "node scripts/typecheck.ts",
     "test": "vp test run --project unit",
     "test:postgres": "vp test run --project postgres",
     "smoke:docker": "bash scripts/smoke-docker.sh",
-    "check": "vp check && tsc && node scripts/check-migrations.ts && vp test run --project unit",
+    "check": "vp check && node scripts/typecheck.ts && node scripts/check-migrations.ts && vp test run --project unit",
     "check:static": "bash scripts/check-static.sh",
     "scan:image": "bash scripts/scan-image.sh"
   },
   "devDependencies": {
+    "@effect/tsgo": "0.56.1",
     "@effect/vitest": "catalog:",
     "@oxlint/plugins": "1.89.0",
     "@types/node": "26.6.5",

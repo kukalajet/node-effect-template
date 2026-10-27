@@ -100,11 +100,18 @@
       separateMajorMinor: false,
     },
     {
-      // From a prerelease, Renovate offers newer prereleases of the same
-      // version; the nightly 7.1.0-dev builds are not wanted.
+      // Each @effect/tsgo release ships a tsc built from specific TypeScript
+      // releases, and the type check runs the one built from the installed
+      // `typescript`. A TypeScript update therefore fails the type check
+      // (scripts/typecheck.ts) until this pull request also carries an
+      // @effect/tsgo release that ships it; a major of either stays in the
+      // same pull request for that reason. From a prerelease, Renovate offers
+      // newer prereleases of the same version; the nightly 7.1.0-dev builds
+      // are not wanted.
       groupName: "TypeScript",
       matchPackageNames: ["typescript", "@effect/tsgo"],
       allowedVersions: "!/-dev\\./",
+      separateMajorMinor: false,
     },
     {
       // devEngines.runtime and the Dockerfile's base image. The workflows read

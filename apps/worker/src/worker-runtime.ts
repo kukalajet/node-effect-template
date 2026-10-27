@@ -11,9 +11,12 @@ import {
 
 import { reportWorkerFailure } from "./worker-errors.ts";
 
+// The adapters behind the worker's ports, and AppConfig, built once for both
+// PgClientLive and the program.
 const WorkerServicesLive = UserRepositoryLive.pipe(
   Layer.provide(DatabaseLive),
   Layer.provide(PgClientLive),
+  Layer.provideMerge(AppConfig.layer),
 );
 
 // Everything a worker program may use. Add a job's ports here, and their
@@ -26,7 +29,6 @@ type WorkerRequirements = AppConfig | UserRepository;
 const runWorker = <E>(program: Effect.Effect<void, E, WorkerRequirements>) => {
   const worker = program.pipe(
     Effect.provide(WorkerServicesLive),
-    Effect.provide(AppConfig.layer),
     Effect.tapCause(reportWorkerFailure),
     Effect.provide(Logger.layer([Logger.consoleJson])),
   );

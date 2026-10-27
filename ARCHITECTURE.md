@@ -113,7 +113,7 @@ packages/
     src/users/test/
 
 drizzle/                          # generated migrations, committed
-scripts/                          # init, OpenAPI export, smoke, scan, static and toolchain checks
+scripts/                          # init, OpenAPI export, type check, smoke, scan, static and toolchain checks
 deploy/vps/                       # production Compose project and scripts
 tools/oxlint/anti-slop/           # vendored lint rules
 ```
@@ -184,8 +184,8 @@ Keep the contract, implementation, composition, and test replacement separate:
    `Database`, `DatabaseLive` requires `PgClient`, and `PgClientLive` requires
    `AppConfig`; none silently installs the next layer in the chain.
 4. Connect that chain in the composition root, then provide configuration and
-   logging at the outside edge. The API's `request-services-live.ts` and the
-   worker's `worker-runtime.ts` both build the same chain:
+   logging at the outside edge. The API's `request-services-live.ts` builds the
+   chain:
 
    ```ts
    const RequestServicesLive = UserRepositoryLive.pipe(
@@ -195,7 +195,12 @@ Keep the contract, implementation, composition, and test replacement separate:
    ```
 
    `main.ts` provides it to the routes with `HttpRouter.provideRequest`, and
-   provides `AppConfig.layer` to the server last.
+   provides `AppConfig.layer` to the server last. The worker's
+   `worker-runtime.ts` builds the same chain and ends it with
+   `Layer.provideMerge(AppConfig.layer)`: `PgClientLive` and the worker program
+   both read `AppConfig`, and one layer builds it once for both. Give an effect
+   its layers in one `Effect.provide`, merged or provided to each other: the
+   type check fails on two in a row (Effect's `multipleEffectProvide` rule).
 
 5. In a consumer test, replace the contract directly with `Layer.succeed` or
    `Layer.mock`. Route and job unit tests should not start PostgreSQL or import

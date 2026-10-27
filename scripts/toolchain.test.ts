@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
@@ -125,6 +126,43 @@ describe("the Vite+ toolchain", () => {
       ),
       [vitePlusPlace]: vitePlusPin("vite"),
     });
+  });
+});
+
+// @effect/tsgo ships a tsc for each TypeScript release it supports, and
+// scripts/typecheck.ts runs the one built from the installed `typescript`.
+// That tsc's version names both releases, so running the script checks that the
+// type check is Effect's, built from the TypeScript that package.json pins, at
+// the pinned @effect/tsgo. For a TypeScript nightly it leaves out the build
+// date, 7.1.0-dev rather than 7.1.0-dev.20261023.1; the script has already
+// matched the build to the installed nightly's commit.
+const nightlyDatePattern = /^(?<release>\d+\.\d+\.\d+-dev)\.\d+\.\d+$/;
+
+describe("the type check", () => {
+  it("runs the Effect tsc built from the pinned TypeScript", () => {
+    const typescript = root.devDependencies?.["typescript"] ?? "(none)";
+    const effectTsgo = root.devDependencies?.["@effect/tsgo"] ?? "(none)";
+
+    const printedTypescript =
+      nightlyDatePattern.exec(typescript)?.groups?.["release"] ?? typescript;
+
+    const { stdout, stderr } = spawnSync(
+      process.execPath,
+      ["scripts/typecheck.ts", "--version"],
+      { cwd: repositoryUrl, encoding: "utf8" },
+    );
+
+    const advice = [
+      `pnpm typecheck must run the tsc that @effect/tsgo ${effectTsgo} builds from typescript ${typescript}.`,
+      "Run pnpm install if node_modules is out of date. Otherwise update both together, to an @effect/tsgo release that ships a tsc for that TypeScript: its README lists them under Supported Package Versions.",
+      `scripts/typecheck.ts stderr: ${stderr.trim() || "(empty)"}`,
+    ];
+
+    assert.strictEqual(
+      stdout.trim(),
+      `Version ${printedTypescript}+effect-tsgo.${effectTsgo}`,
+      advice.join("\n"),
+    );
   });
 });
 

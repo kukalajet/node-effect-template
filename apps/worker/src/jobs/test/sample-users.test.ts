@@ -32,8 +32,7 @@ describe("sampleUsersPass", () => {
       });
 
       yield* sampleUsersPass().pipe(
-        Effect.provide(repository),
-        Effect.provide(Logger.layer([logger])),
+        Effect.provide([repository, Logger.layer([logger])]),
       );
 
       assert.deepStrictEqual(limits, [5]);

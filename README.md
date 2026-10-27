@@ -166,7 +166,7 @@ docker compose run --rm worker-once
 | `pnpm fmt`                            | Formats every file with oxfmt                                                                         |
 | `pnpm lint`                           | Lints with oxlint                                                                                     |
 | `pnpm fix`                            | Formats, then applies safe lint fixes                                                                 |
-| `pnpm typecheck`                      | Type-checks with `tsc`                                                                                |
+| `pnpm typecheck`                      | Type-checks with TypeScript's `tsc` and Effect's diagnostics (`scripts/typecheck.ts`)                 |
 | `pnpm test`                           | Runs the unit tests                                                                                   |
 | `pnpm test:postgres`                  | Runs the tests that need PostgreSQL                                                                   |
 | `pnpm check`                          | Format check, lint, type check, migration drift check and unit tests: what CI and the image build run |
@@ -212,10 +212,27 @@ docker compose run --rm worker-once
   trailing commas, and Markdown prose wrapped at 80 columns. Import sorting is
   lint's job, in five groups: `node:` built-ins, packages, `@node-effect/*`,
   `../`, then `./`.
-- **Type checking** uses `tsc` from TypeScript 7 with the single root
-  `tsconfig.json` (strict, `exactOptionalPropertyTypes`,
-  `noUncheckedIndexedAccess`, and unused-code checks). Lint is not type-aware;
-  `tsc` is the authoritative type check.
+- **Type checking** uses the single root `tsconfig.json` (strict,
+  `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, and unused-code
+  checks). `pnpm typecheck` runs TypeScript 7's `tsc` as `@effect/tsgo` builds
+  it, with the Effect language service inside: `scripts/typecheck.ts` picks the
+  build made from the installed `typescript`, and fails when there is none. Lint
+  is not type-aware; the type check is the authoritative one.
+- **Effect's diagnostics.** The type check also reports mistakes that plain
+  `tsc` passes, such as an Effect that is built but never run, `yield` written
+  for `yield*`, and an Effect returned to a plain Vitest `it`, which passes
+  without running it. Errors and warnings fail it; suggestions are not shown.
+  The `@effect/language-service` plugin in `tsconfig.json` configures them, with
+  `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, Node platform and Vitest
+  modules the template is built on as unstable. Fix the code where you can; two
+  `Effect.provide` calls in a row, for example, become one, with the layers
+  merged or provided to each other. To accept a finding on one line, put
+  `// @effect-diagnostics-next-line <rule>:off` on the line above, with a
+  comment that says why; an unused directive fails the check.
+  `scripts/typecheck.test.ts` type-checks a fixture with each of the three
+  mistakes above and fails unless each is an error, so a renamed plugin entry or
+  an option that turns them off cannot pass silently. Editors do not show these
+  diagnostics yet (see [Editor](#editor)).
 - **Git hooks.** `pnpm install` runs `prepare` (`vp config --no-agent`), which
   points Git's `core.hooksPath` at the dispatcher in `.vite-hooks/_`. The hooks
   themselves are `.vite-hooks/pre-commit` and `.vite-hooks/pre-push`. Before a
@@ -470,6 +487,8 @@ trigger back (see above).
 (fixes as you type) and oxfmt (format on save). `.zed/debug.json` has debug
 configurations for the API, the worker and the current Vitest file. All three
 use the pinned Node in `node_modules/.bin/node`; the API and worker load `.env`.
+vtsls shows TypeScript's errors but not Effect's diagnostics, which only
+`pnpm typecheck` reports.
 
 ## Exact dependency policy
 
@@ -551,7 +570,7 @@ onboarding pull request.
 | Effect             | `effect` and `@effect/*` in the catalog                                                                            |
 | Drizzle            | `drizzle-orm` and `drizzle-kit`, without Drizzle's branch builds                                                   |
 | Vite+ toolchain    | `vite-plus`, `oxlint`, `oxfmt`, `@oxlint/plugins` and `vitest`, and the Vite and Vitest overrides, majors included |
-| TypeScript         | `typescript`, without its nightly builds                                                                           |
+| TypeScript         | `typescript` and `@effect/tsgo`, without TypeScript's nightly builds, majors included                              |
 | Node               | `devEngines.runtime` and the `Dockerfile`'s base image; the workflows read Node from `package.json`                |
 | pnpm               | `packageManager`, `devEngines.packageManager` and the `Dockerfile`'s `npm install --global pnpm@…`                 |
 | PostgreSQL         | Minor versions and digests in `ci.yml` and both Compose files                                                      |
@@ -575,7 +594,13 @@ Grype version in `scripts/scan-image.sh`; and the oxlint, oxfmt,
 `@oxlint/plugins`, Vitest and Vite versions that the installed `vite-plus` pins.
 oxc and Vitest often release before Vite+ pins the release, so the Vite+ group
 can fail that test until Renovate adds the `vite-plus` release that pins them;
-wait for it.
+wait for it. It also runs the type check's `tsc` and fails unless it is the one
+`@effect/tsgo` builds from the pinned `typescript`, at the pinned
+`@effect/tsgo`. Each `@effect/tsgo` release ships builds for specific TypeScript
+releases, so a TypeScript update fails `pnpm check` at the type check, before
+the tests run, until the TypeScript group also carries an `@effect/tsgo`
+release, three days old, that ships it. The type check then prints "No packaged
+Effect TypeScript executable matches installed TypeScript …" and what to do.
 
 Renovate does not manage the image built from this repository
 (`node-effect-template:local` and the commit-tagged release images), the
@@ -590,6 +615,12 @@ with a new base image digest.
   `migrate.ts` uses its Effect migrator, `drizzle-orm/effect-postgres/migrator`.
 - **TypeScript 7**, the Go-native compiler, is pinned to a prerelease. Drizzle's
   declaration files do not type-check under it, so `skipLibCheck` must stay on.
+- **`@effect/tsgo`**, which runs the type check, is a 0.x third-party build of
+  TypeScript 7's compiler, patched with the Effect language service, and is
+  released several times a week. Its package for your platform is roughly 200 MB
+  unpacked, and grows with the TypeScript builds each release ships. The image
+  build's check stage and CI's `check` and `postgres` jobs install it too; the
+  runtime image does not contain it.
 - **Vite+** bundles Vitest. The `overrides` in `pnpm-workspace.yaml` keep one
   Vite (`vite-plus-core`) and one Vitest, so `vp test` and `@effect/vitest`
   share a runner. `scripts/toolchain.test.ts` fails when they, or the root
