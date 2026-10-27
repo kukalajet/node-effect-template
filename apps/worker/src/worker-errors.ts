@@ -10,8 +10,9 @@ import {
 //
 // Repository errors carry their raw cause, which can hold SQL, parameters, and
 // stored values, so they are reported by their safe diagnostics instead, also
-// when one arrives as a defect. Any other failure is unexpected and keeps its
-// details.
+// when one arrives as a defect. Any other failure keeps its details: a pass
+// timeout's TimeoutError names the job and the limit, and anything else is
+// unexpected.
 const reportWorkerFailure = (cause: Cause.Cause<unknown>) => {
   if (Cause.hasInterruptsOnly(cause)) return Effect.void;
 

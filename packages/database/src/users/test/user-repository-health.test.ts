@@ -5,6 +5,7 @@ import { TestClock } from "effect/testing";
 import { UserRepository, UserRepositoryError } from "@node-effect/application";
 
 import { DatabaseLive } from "../../postgres.ts";
+import { testAppConfig } from "../../test/app-config.fixtures.ts";
 import { pgClientLayer, stalledConnection } from "../../test/pg-client.ts";
 import { UserRepositoryLive } from "../user-repository-live.ts";
 
@@ -13,6 +14,7 @@ import { UserRepositoryLive } from "../user-repository-live.ts";
 const stalledRepository = UserRepositoryLive.pipe(
   Layer.provide(DatabaseLive),
   Layer.provide(pgClientLayer(Effect.succeed(stalledConnection))),
+  Layer.provide(testAppConfig()),
 );
 
 describe("UserRepositoryLive.health", () => {

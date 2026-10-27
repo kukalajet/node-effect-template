@@ -7,9 +7,15 @@ import { basename, join, relative } from "node:path";
 const sourceProjectName = ["node", "effect"].join("-");
 
 // Valid as an npm scope, a Docker image name, and (with `_` for `-`) a
-// PostgreSQL identifier, whose length limit is 63 bytes.
-const projectNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const maxProjectNameLength = 63;
+// PostgreSQL identifier that needs no quoting: it starts with a letter and has
+// at most 63 bytes. The runtime role's default name adds `_app` to it
+// (APP_DATABASE_USER in .env.example), and `migrate` accepts only such a name.
+const projectNamePattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const maxProjectNameLength = 63 - "_app".length;
+
+// PostgreSQL reserves role names that start with `pg_`, which `pg` or a name
+// starting with `pg-` would give the database owner or the runtime role.
+const reservedProjectNamePattern = /^pg(?:-|$)/;
 
 const ignoredDirectoryNames = new Set([
   ".git",
@@ -30,10 +36,17 @@ const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
 const validateProjectName = (projectName: string): string => {
   const isValidName = projectNamePattern.test(projectName);
+  const isReservedName = reservedProjectNamePattern.test(projectName);
 
   if (projectName.length > maxProjectNameLength || !isValidName) {
     throw new Error(
-      "Project name must be 1-63 characters of lowercase letters or digits separated by single hyphens",
+      `Project name must be 1-${maxProjectNameLength} characters of lowercase letters or digits separated by single hyphens, starting with a letter`,
+    );
+  }
+
+  if (isReservedName) {
+    throw new Error(
+      "Project name must not be pg or start with pg-: PostgreSQL reserves role names that start with pg_",
     );
   }
 

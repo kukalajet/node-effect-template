@@ -6,7 +6,12 @@ import { SqlClient } from "effect/sql";
 
 import { AppConfig } from "@node-effect/config";
 
-import { type Database, DatabaseLive, PgClientLive } from "../postgres.ts";
+import {
+  type Database,
+  DatabaseLive,
+  MigrationPgClientLive,
+  PgClientLive,
+} from "../postgres.ts";
 
 const migrationsRoot = join(import.meta.dirname, "../../../../drizzle");
 
@@ -60,9 +65,13 @@ const testSchema = (schemaName: string, statements: ReadonlyArray<string>) =>
     ),
   );
 
-// A schema of its own for one test. Provides `Database` and the `SqlClient`
-// it runs on, so a test can arrange and inspect rows directly.
-const testDatabase = (statements: ReadonlyArray<string>) =>
+// A schema of its own for one test, on `pgClient`. Provides `Database`, the
+// `SqlClient` it runs on, so a test can arrange and inspect rows directly, and
+// the `AppConfig` both read.
+const testDatabase = (
+  statements: ReadonlyArray<string>,
+  pgClient: typeof PgClientLive,
+) =>
   Layer.unwrap(
     Effect.gen(function* () {
       const databaseUrl = yield* Config.String("DATABASE_URL");
@@ -72,29 +81,36 @@ const testDatabase = (statements: ReadonlyArray<string>) =>
         AppConfig,
         AppConfig.of({
           databaseUrl: Redacted.make(withSearchPath(databaseUrl, schemaName)),
+          databaseStatementTimeoutMs: 10_000,
           apiHost: "127.0.0.1",
           apiPort: 8000,
           workerPollIntervalMs: 5000,
+          workerPassTimeoutMs: 60_000,
         }),
       );
 
       return Layer.mergeAll(
         DatabaseLive,
         testSchema(schemaName, statements),
-      ).pipe(Layer.provideMerge(PgClientLive), Layer.provide(config));
+      ).pipe(Layer.provideMerge(pgClient), Layer.provideMerge(config));
     }),
   );
 
 // Runs an effect on a fresh schema with every migration applied, providing
 // `adapter` built on it.
 const withMigratedDatabase = <Provided, LayerError>(
-  adapter: Layer.Layer<Provided, LayerError, Database>,
+  adapter: Layer.Layer<Provided, LayerError, AppConfig | Database>,
 ) =>
   Effect.provide(
-    adapter.pipe(Layer.provideMerge(testDatabase(migrationStatements))),
+    adapter.pipe(
+      Layer.provideMerge(testDatabase(migrationStatements, PgClientLive)),
+    ),
   );
 
-// Runs an effect on a fresh schema with nothing in it.
-const withEmptyDatabase = Effect.provide(testDatabase([]));
+// Runs an effect on a fresh schema with nothing in it, on the client
+// `migrate.ts` uses.
+const withEmptyDatabase = Effect.provide(
+  testDatabase([], MigrationPgClientLive),
+);
 
 export { withEmptyDatabase, withMigratedDatabase };

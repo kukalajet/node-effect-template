@@ -98,12 +98,14 @@ packages/
     src/users/user-repository.ts  # abstract service (port) and its error
   config/
     mod.ts
-    src/app-config.ts
+    src/app-config.ts             # AppConfig, read by the API and the worker
+    src/runtime-role-config.ts    # the runtime role's name and password, read by migrate only
   database/
     mod.ts
     src/postgres.ts               # PgClient and Database services and layers
     src/error-diagnostics.ts      # safe diagnostics from database causes
     src/migrate.ts                # migration entry point
+    src/runtime-role.ts           # the API's and worker's role, which migrate provisions
     src/users/schema.ts           # Drizzle table and row schemas
     src/users/user-repository-live.ts
     src/users/user-repository-error.ts
@@ -320,21 +322,58 @@ up to 10 seconds. It keeps an idle keep-alive connection open for 95 seconds,
 longer than Cloudflare Tunnel's 90, so the tunnel never sends a request on a
 connection the API is closing (`apps/api/src/main.ts`).
 
+`PgClientLive` bounds the wait for a pooled connection and has PostgreSQL limit
+every statement (`DATABASE_STATEMENT_TIMEOUT_MS`), every lock wait, and every
+session left idle inside a transaction. A statement or lock timeout carries its
+SQLSTATE code (57014, 55P03) in the diagnostics, and a pool wait is a
+`ConnectionError`. PostgreSQL enforces those limits, so they cannot fire when
+the server stops answering. A repository therefore bounds each call itself with
+`databaseCallTimeout`, a little longer than the pool wait and the statement
+together, and reports a call that runs out as a `TimeoutError`; a new repository
+should do the same. Each surfaces as an ordinary persistence failure. The one
+exception is a session PostgreSQL ends for idling inside a transaction: its
+connection goes with it, so the transaction's rollback fails and the transaction
+dies with a defect. `packages/database/src/postgres.ts` gives the reason for
+each value.
+
 The worker's persistent entry point runs each job on an independent loop, so a
 slow job never delays another, and passes of one job never overlap. The first
 failure in any loop interrupts the others and fails the process. The worker does
 not retry; its supervisor does (Compose's `restart: unless-stopped` locally and
-in production). `once.ts` runs one pass of every job and exits with its result.
-Both share `worker-runtime.ts`. Keep durable workflow execution, when you need
-it, in application contracts and PostgreSQL adapters rather than growing this
-polling example into a runtime.
+in production). A pass that runs longer than `WORKER_PASS_TIMEOUT_MS` is
+interrupted and fails the worker, so a hung pass is restarted too. Passes stay
+interruptible, so SIGTERM can stop one. Either waits only for the driver to
+cancel a query in flight, at most 5 seconds when the server does not answer.
+`once.ts` runs one pass of every job and exits with its result. Both share
+`worker-runtime.ts`. Keep durable workflow execution, when you need it, in
+application contracts and PostgreSQL adapters rather than growing this polling
+example into a runtime.
 
 Neither application performs schema migrations at startup. Locally, the Compose
 `migrate` service runs `packages/database/src/migrate.ts` and the API and worker
 start only after it succeeds. It applies every migration in `drizzle/` that the
 `drizzle.__drizzle_migrations` journal does not list, in one transaction, and
 writes the same journal Drizzle Kit uses. The image therefore ships `drizzle/`
-beside the code.
+beside the code. It runs on `MigrationPgClientLive`, one connection without a
+statement timeout, so long index builds finish, and with a 5 second lock
+timeout, so an ALTER TABLE queued behind a long transaction fails the migration
+instead of holding up every query on that table.
+
+`migrate` connects as the database owner, a superuser in the PostgreSQL image.
+After the migrations commit, it provisions the runtime role named by
+`APP_DATABASE_USER` (`packages/database/src/runtime-role.ts`): a login role,
+with no other attributes and in no other role, that may read and write the rows
+of every table in `public`, including tables the owner creates later. The API
+and the worker in Compose and in production connect as that role, so a query
+they send cannot change the schema, read the migration journal, or reach the
+server's files and programs; it keeps only what PostgreSQL grants every role,
+such as temporary tables. `migrate` refuses a name that already belongs to the
+owner, a superuser, a member of another role, or the owner of objects, before it
+applies any migration. Its settings live in
+`packages/config/src/runtime-role-config.ts`, apart from `AppConfig`, so the API
+and the worker never need the password. Native development uses the owner's URL
+for everything. A table outside `public` needs grants of its own in its
+migration.
 
 `deploy/vps/` holds the production Compose project and its release and backup
 scripts. A release runs `migrate` once, as a separate step, and restarts the API
@@ -349,11 +388,11 @@ Tests live in a `test/` folder beside the code they cover: `src/<feature>/test/`
 for a feature, and `src/test/` for modules directly under `src/`. The file
 suffix decides how a test runs:
 
-| Suffix          | Runs with            | Needs                                         |
-| --------------- | -------------------- | --------------------------------------------- |
-| `*.test.ts`     | `pnpm test`          | Nothing: no database, no network              |
-| `*.postgres.ts` | `pnpm test:postgres` | A PostgreSQL reachable through `DATABASE_URL` |
-| `*.fixtures.ts` | not a test           | Shared setup imported by tests                |
+| Suffix          | Runs with            | Needs                                   |
+| --------------- | -------------------- | --------------------------------------- |
+| `*.test.ts`     | `pnpm test`          | Nothing: no database, no network        |
+| `*.postgres.ts` | `pnpm test:postgres` | A PostgreSQL superuser's `DATABASE_URL` |
+| `*.fixtures.ts` | not a test           | Shared setup imported by tests          |
 
 Tests use `@effect/vitest`: `it.effect` for effects, `it.live` for real time and
 I/O, and `TestClock` from `effect/testing` for timeouts and schedules. Replace a
@@ -375,7 +414,9 @@ Module mocking fails lint.
   `packages/database/src/test/migrated-database.fixtures.ts`. It creates a
   schema with a random name, applies every migration in `drizzle/`, points the
   connection's `search_path` at it through the URL's `options`, and drops it
-  afterwards. `withEmptyDatabase` gives an empty schema. The setup file
+  afterwards. `withEmptyDatabase` gives an empty schema. The runtime role tests
+  also create and drop roles, which belong to the whole cluster, so they need a
+  superuser and name each role uniquely. The setup file
   `packages/database/src/test/postgres.setup.ts` loads `.env` and fails clearly
   without `DATABASE_URL`. These files run one at a time.
 - **Logs** in tests are captured with a `Logger` layer when a test asserts on

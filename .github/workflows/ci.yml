@@ -61,7 +61,8 @@ jobs:
         run: bash scripts/smoke-docker.sh
 
   # Database adapter tests against PostgreSQL itself. Each test creates and
-  # drops its own schema in this throwaway database.
+  # drops its own schema in this throwaway database, and the runtime role tests
+  # create and drop cluster-wide roles, which needs the image's superuser.
   postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 20

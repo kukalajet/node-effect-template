@@ -1,18 +1,37 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Fiber, Layer, Schema } from "effect";
+import { TestClock } from "effect/testing";
 
 import { UserRepository, UserRepositoryError } from "@node-effect/application";
 import { UserNotFound } from "@node-effect/domain";
 
 import { DatabaseLive } from "../../postgres.ts";
-import { connectionWithRows, pgClientLayer } from "../../test/pg-client.ts";
+import { testAppConfig } from "../../test/app-config.fixtures.ts";
+import {
+  connectionWithRows,
+  pgClientLayer,
+  stalledConnection,
+} from "../../test/pg-client.ts";
 import { UserRepositoryLive } from "../user-repository-live.ts";
 
 const repositoryWithRows = (rows: ReadonlyArray<ReadonlyArray<unknown>>) =>
   UserRepositoryLive.pipe(
     Layer.provide(DatabaseLive),
     Layer.provide(pgClientLayer(Effect.succeed(connectionWithRows(rows)))),
+    Layer.provide(testAppConfig()),
   );
+
+// A database that accepts every query and never answers it, like a server that
+// stopped responding: none of PostgreSQL's own limits fires. With a 1 second
+// statement timeout, the call limit is the 5 second pool wait, plus that
+// second, plus the 2 second margin.
+const stalledRepository = UserRepositoryLive.pipe(
+  Layer.provide(DatabaseLive),
+  Layer.provide(pgClientLayer(Effect.succeed(stalledConnection))),
+  Layer.provide(testAppConfig({ DATABASE_STATEMENT_TIMEOUT_MS: "1000" })),
+);
+
+const stalledCallLimitMs = 8000;
 
 const user = {
   id: "d5b9d3de-fda5-4a78-b8a5-2f3b60634d95",
@@ -103,6 +122,27 @@ describe("UserRepositoryLive", () => {
       assert.strictEqual(failure.id, user.id);
     }).pipe(Effect.provide(repositoryWithRows([]))),
   );
+
+  for (const operation of ["insert", "findById", "list"] as const) {
+    it.effect(`${operation} gives up on a database that stops answering`, () =>
+      Effect.gen(function* () {
+        const fiber = yield* runOperation(operation).pipe(
+          Effect.flip,
+          Effect.forkScoped,
+        );
+
+        yield* TestClock.adjust(stalledCallLimitMs - 1);
+        assert.isUndefined(fiber.pollUnsafe());
+
+        yield* TestClock.adjust(1);
+        const failure = yield* Fiber.join(fiber);
+
+        assert.instanceOf(failure, UserRepositoryError);
+        assert.strictEqual(failure.operation, operation);
+        assert.deepStrictEqual(failure.diagnostics, { reason: "TimeoutError" });
+      }).pipe(Effect.provide(stalledRepository)),
+    );
+  }
 
   it.effect("list returns an empty result unchanged", () =>
     Effect.gen(function* () {

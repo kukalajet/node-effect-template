@@ -74,6 +74,40 @@ On the server the files are laid out as:
 `bin/` holds exactly the scripts of the current release's image, like
 `compose.yml`.
 
+### Database roles
+
+`api` and `worker` connect as the runtime role, `APP_DATABASE_USER`
+(`node_effect_app` by default). It can log in and read, insert, update and
+delete rows in the tables of the `public` schema, and use their sequences. It is
+not a superuser and belongs to no other role, so it cannot create, alter, drop
+or truncate those tables, create schemas or roles, read the migration journal in
+the `drizzle` schema, read or write server files, or run programs on the server
+with `COPY ... TO PROGRAM`. SQL injection in the API is therefore limited to the
+application's rows rather than the schema or a shell next to the data volume.
+
+It keeps what PostgreSQL grants every role: it can connect to the cluster's
+other databases without creating anything there, create temporary tables and
+functions for the length of its session, create large objects, call functions
+open to everyone, and change its own password and session defaults. Every
+release's `migrate` sets the password again and clears those defaults.
+
+`migrate` and `bin/backup` use the owner, `POSTGRES_USER`, which the PostgreSQL
+image makes a superuser. After applying the migrations, every `migrate` run
+creates the runtime role or updates it, sets its password from
+`APP_DATABASE_PASSWORD`, clears settings stored for it, and grants it those
+privileges on every table in `public`, including those the owner creates later.
+`migrate` sends PostgreSQL only a salted SCRAM-SHA-256 hash of the password,
+never the password itself. A table in a schema other than `public` needs its own
+grants, in the migration that creates it.
+
+`APP_DATABASE_USER` is lowercase letters, digits and `_`, does not start with a
+digit, has at most 63 characters, and is not `public`, `none` or a name starting
+with `pg_`. Before it applies any migration, `migrate` fails, and the release
+with it, when the name is the owner or an existing role that is a superuser,
+belongs to another role, or owns database objects: such a role is someone
+else's. To change the name after a release, see
+[Day-to-day operations](#day-to-day-operations).
+
 ## Setup
 
 The commands assume Ubuntu 24.04 LTS or Debian 13, run as root on the server
@@ -214,6 +248,8 @@ value in the vault:
   Release workflow names the image.
 - `POSTGRES_PASSWORD`: generate it with `openssl rand -hex 32`. Characters such
   as `/` or `+` would break the database URL.
+- `APP_DATABASE_PASSWORD`: the runtime role's password (see
+  [Database roles](#database-roles)); generate it the same way.
 - `CLOUDFLARE_TUNNEL_TOKEN`: from step 5.
 
 Run every Compose command through `bin/compose`, which loads both `.env` and
@@ -381,10 +417,24 @@ The single API replica is unavailable for a few seconds while it restarts, and
 the tunnel returns an error page meanwhile. An automatic rollback restarts it
 again.
 
+**Upgrading a server set up before the runtime role.** Add
+`APP_DATABASE_PASSWORD`, generated as in step 6, to `.env` before releasing the
+commit that introduces it. Without it, that release stops in step 2, at the
+staged `config --quiet`, and changes nothing; add it and release again.
+
 Migrations never run at application startup. They must work with the previous
 release still running, because it serves traffic while `migrate` runs and a
 rollback does not undo them: add columns and tables first, and remove old ones
 in a later release.
+
+`migrate` gives up after waiting 5 seconds for a lock. Otherwise an ALTER TABLE
+queued behind a long transaction would hold up every query on that table while
+the previous release serves. The release then fails at step 2 and changes
+nothing; run it again, for example by re-running the `deploy` job, once that
+transaction has ended. Statements themselves have no time limit, so a long index
+build finishes, but it blocks writes to its table until it does, and a write
+waiting for it gives up after 8 seconds, or after
+`DATABASE_STATEMENT_TIMEOUT_MS` if that is shorter.
 
 **Rollback.** A release that fails its checks rolls itself back. To return to an
 earlier release by hand, run `/opt/node-effect-template/bin/release <sha>` on
@@ -435,15 +485,23 @@ restic restore latest --target /tmp/restore
 docker run -d --name restore-pg -e POSTGRES_PASSWORD=drill postgres:18.6-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
 until docker exec restore-pg pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done
 docker cp /tmp/restore/var/backups/node-effect-template/database.dump restore-pg:/tmp/database.dump
-docker exec restore-pg pg_restore -U postgres --no-owner --create -d postgres /tmp/database.dump
+docker exec restore-pg pg_restore -U postgres --no-owner --no-privileges --create -d postgres /tmp/database.dump
 docker exec restore-pg psql -U postgres -d node_effect -c 'select count(*) from users'
-docker rm -f restore-pg && rm -rf /tmp/restore
+docker rm -f -v restore-pg && rm -rf /tmp/restore
 ```
+
+The dump holds the runtime role's grants, but not the role itself, which belongs
+to the whole PostgreSQL cluster rather than the database. Restoring them into a
+cluster without that role fails with `role "node_effect_app" does not exist`, so
+both restores skip every grant with `--no-privileges`. The next `migrate`
+creates the role and grants it access again; re-apply any grant you added by
+hand.
 
 A full restore follows the same path on a new server: repeat setup steps 2–7,
 start PostgreSQL with `bin/compose up -d postgresql`, load the dump with
-`bin/compose exec -T postgresql sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner' < database.dump`,
-then release the last commit.
+`bin/compose exec -T postgresql sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-privileges' < database.dump`,
+then release the last commit, whose `migrate` creates the runtime role before
+the API and worker start.
 
 ## Monitoring
 
@@ -479,9 +537,22 @@ full restore does, rather than copying them into the container.
   Generate the new one with `openssl rand -hex 32` and store it in the vault.
   Open `psql` as in the block above, run `\password` (it changes the connected
   role's password) and paste it. Then put it in `.env` and run
-  `bin/compose up -d --wait api worker`, which recreates PostgreSQL, the API and
-  the worker with the new value. New database connections fail between the two
-  steps, so do them together.
+  `bin/compose up -d --wait postgresql`, which recreates PostgreSQL with the new
+  value. Only `migrate` and database tools log in with it, but any later
+  `bin/compose up`, of `cloudflared` say, would recreate PostgreSQL too, because
+  its definition changed, so do it now, at a time you choose. The database is
+  unavailable for a few seconds: API requests fail and the worker may restart.
+- **Change `APP_DATABASE_PASSWORD`:** generate the new one the same way, store
+  it in the vault and put it in `.env`. Then release the current commit again:
+  `bin/release $(sed -n 's/^APP_IMAGE_TAG=//p' release.env)`. Its `migrate` sets
+  the new password, and its restart gives the API and the worker the new value.
+  Connections they open between the two steps fail to log in, so for a few
+  seconds the worker may restart and API requests may fail.
+- **Rename `APP_DATABASE_USER`:** provisioning only touches the role the release
+  names, so the old role can still log in with its old password and grants. Once
+  the release with the new name serves, open `psql` as in the block above and
+  remove it, with `<old>` replaced by its name:
+  `REASSIGN OWNED BY <old> TO CURRENT_USER; DROP OWNED BY <old>; DROP ROLE <old>;`.
 - **Change `CLOUDFLARE_TUNNEL_TOKEN`:** put the new token in the vault and in
   `.env`, run `bin/compose up -d --wait cloudflared`, check `/health/ready`
   through the tunnel, then revoke the old token at Cloudflare. Restarting the
@@ -506,6 +577,11 @@ Keep production private until every item passes.
       `/health/live` stays 200, and the worker restarts and recovers once the
       database is back.
 - [ ] After `reboot`, every service and the tunnel return without manual action.
+- [ ] The API and the worker connect as the runtime role: in `psql`,
+      `select distinct usename from pg_stat_activity where application_name = 'node-effect-template'`
+      lists only `APP_DATABASE_USER`, and
+      `select count(*) from pg_auth_members where member = '<APP_DATABASE_USER>'::regrole`
+      returns 0.
 - [ ] A release with a migration, then a rollback to the previous commit.
 - [ ] A release whose API cannot reach the database rolls itself back.
 - [ ] The backup and restore drill passes.

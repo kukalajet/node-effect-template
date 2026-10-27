@@ -59,9 +59,11 @@ const pgClientFor = (port: number) =>
           databaseUrl: Redacted.make(
             `postgresql://test:test@127.0.0.1:${port}/test`,
           ),
+          databaseStatementTimeoutMs: 10_000,
           apiHost: "127.0.0.1",
           apiPort: 8000,
           workerPollIntervalMs: 5000,
+          workerPassTimeoutMs: 60_000,
         }),
       ),
     ),

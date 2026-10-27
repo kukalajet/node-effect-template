@@ -2,13 +2,14 @@ import { desc, eq, sql } from "drizzle-orm";
 import { Effect, Layer, Option, Schema } from "effect";
 
 import { UserRepository } from "@node-effect/application";
+import { AppConfig } from "@node-effect/config";
 import {
   type CreateUser,
   type UserIdType,
   UserNotFound,
 } from "@node-effect/domain";
 
-import { Database } from "../postgres.ts";
+import { Database, databaseCallTimeout } from "../postgres.ts";
 
 import { UserRowSchema, users } from "./schema.ts";
 import {
@@ -21,6 +22,13 @@ const decodeUserRows = Schema.decodeUnknownEffect(Schema.Array(UserRowSchema));
 
 const makeUserRepository = Effect.gen(function* () {
   const database = yield* Database;
+  const config = yield* AppConfig;
+
+  // Each call sends one statement. Past this bound the server has stopped
+  // answering, and the call fails as a TimeoutError (see databaseCallTimeout).
+  const withinCallLimit = Effect.timeout(
+    databaseCallTimeout(config.databaseStatementTimeoutMs),
+  );
 
   const health = database.execute(sql`select 1`).pipe(
     Effect.timeout("5 seconds"),
@@ -35,7 +43,10 @@ const makeUserRepository = Effect.gen(function* () {
       .insert(users)
       .values(input)
       .returning()
-      .pipe(Effect.mapError((cause) => toUserInsertError(input.email, cause)));
+      .pipe(
+        withinCallLimit,
+        Effect.mapError((cause) => toUserInsertError(input.email, cause)),
+      );
 
     return yield* decodeUserRow(rows[0]).pipe(
       Effect.mapError((cause) => toUserRepositoryError("insert", cause)),
@@ -51,6 +62,7 @@ const makeUserRepository = Effect.gen(function* () {
       .where(eq(users.id, id))
       .limit(1)
       .pipe(
+        withinCallLimit,
         Effect.mapError((cause) => toUserRepositoryError("findById", cause)),
       );
 
@@ -74,7 +86,8 @@ const makeUserRepository = Effect.gen(function* () {
         .select()
         .from(users)
         .orderBy(desc(users.createdAt), desc(users.id))
-        .limit(limit);
+        .limit(limit)
+        .pipe(withinCallLimit);
 
       return yield* decodeUserRows(rows);
     },

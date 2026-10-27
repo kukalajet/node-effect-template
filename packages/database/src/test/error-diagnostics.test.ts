@@ -8,6 +8,8 @@ import { diagnosticsFromCause } from "../error-diagnostics.ts";
 describe("diagnosticsFromCause", () => {
   for (const { code, reason } of [
     { code: "42501", reason: SqlError.AuthorizationError },
+    { code: "57014", reason: SqlError.StatementTimeoutError },
+    { code: "55P03", reason: SqlError.LockTimeoutError },
     { code: "ECONNREFUSED", reason: SqlError.UnknownError },
   ]) {
     it(`retains ${code} without query or driver data`, () => {

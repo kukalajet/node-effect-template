@@ -29,6 +29,7 @@ describe("replaceTemplateIdentifiers", () => {
       `${templateName}-template`,
       `${templateName}-template:local`,
       `postgresql://${databaseName}@127.0.0.1:5432/${databaseName}`,
+      `APP_DATABASE_USER=${databaseName}_app`,
       "Node Effect backend template",
     ].join("\n");
 
@@ -39,6 +40,7 @@ describe("replaceTemplateIdentifiers", () => {
         "acme-service",
         "acme-service:local",
         "postgresql://acme_service@127.0.0.1:5432/acme_service",
+        "APP_DATABASE_USER=acme_service_app",
         "Node Effect backend template",
       ].join("\n"),
     );
@@ -83,8 +85,15 @@ describe("replaceTemplateIdentifiers", () => {
 });
 
 describe("validateProjectName", () => {
-  it("accepts lowercase kebab-case names up to 63 characters", () => {
-    for (const projectName of ["api", "acme-service-2", "a".repeat(63)]) {
+  // 59, so that the runtime role's `<name>_app` fits PostgreSQL's 63 bytes.
+  it("accepts lowercase kebab-case names up to 59 characters", () => {
+    for (const projectName of [
+      "api",
+      "acme-service-2",
+      "a2-billing",
+      "pgadmin",
+      "a".repeat(59),
+    ]) {
       assert.strictEqual(validateProjectName(projectName), projectName);
     }
   });
@@ -98,7 +107,13 @@ describe("validateProjectName", () => {
       "-acme",
       "acme-",
       "acme--service",
-      "a".repeat(64),
+      "a".repeat(60),
+      // An unquoted PostgreSQL identifier cannot start with a digit.
+      "2fa-service",
+      "9",
+      // PostgreSQL reserves role names that start with pg_.
+      "pg",
+      "pg-tools",
     ]) {
       assert.throws(() => validateProjectName(projectName));
     }

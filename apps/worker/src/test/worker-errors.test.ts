@@ -65,7 +65,7 @@ describe("worker failure reporting", () => {
     let finalized = false;
 
     const result = await runWorker(
-      processWorkerWorkPass().pipe(
+      processWorkerWorkPass(60_000).pipe(
         Effect.provide(listingWith(() => Effect.fail(error))),
         Effect.ensuring(
           Effect.sync(() => {
@@ -93,7 +93,7 @@ describe("worker failure reporting", () => {
 
   it("exits 1 as soon as one polling loop fails", async () => {
     const result = await runWorker(
-      pollWorkerWork(60_000).pipe(
+      pollWorkerWork({ intervalMs: 60_000, passTimeoutMs: 60_000 }).pipe(
         Effect.provide(listingWith(() => Effect.fail(repositoryFailure()))),
       ),
     );
@@ -104,10 +104,38 @@ describe("worker failure reporting", () => {
     assert.notMatch(result.lines.join(""), sentinels);
   });
 
+  it("logs a pass that outlives its timeout by its job and exits 1", async () => {
+    let interrupted = false;
+
+    const result = await runWorker(
+      processWorkerWorkPass(10).pipe(
+        Effect.provide(
+          listingWith(() =>
+            Effect.never.pipe(
+              Effect.onInterrupt(() =>
+                Effect.sync(() => {
+                  interrupted = true;
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    assert.strictEqual(result.code, 1);
+    assert.isTrue(interrupted);
+    assert.lengthOf(result.lines, 1);
+    const line = result.lines.join("");
+    assert.match(line, /Worker failed/);
+    assert.match(line, /TimeoutError/);
+    assert.match(line, /sample-users ran longer than its 10 ms pass timeout/);
+  });
+
   for (const testCase of [
     {
       name: "startup failure",
-      program: processWorkerWorkPass().pipe(
+      program: processWorkerWorkPass(60_000).pipe(
         Effect.provide(
           Layer.effect(UserRepository, Effect.fail(unexpectedError)),
         ),
@@ -131,7 +159,7 @@ describe("worker failure reporting", () => {
     const cleanupError = new Error("CLEANUP_FAILURE");
 
     const result = await runWorker(
-      processWorkerWorkPass().pipe(
+      processWorkerWorkPass(60_000).pipe(
         Effect.provide(
           Layer.effect(
             UserRepository,
@@ -183,7 +211,7 @@ describe("worker failure reporting", () => {
 
   it("exits 0 after a successful pass, logging only the job's output", async () => {
     const result = await runWorker(
-      processWorkerWorkPass().pipe(
+      processWorkerWorkPass(60_000).pipe(
         Effect.provide(listingWith(() => Effect.succeed([]))),
       ),
     );

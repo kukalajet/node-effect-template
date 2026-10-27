@@ -7,10 +7,11 @@ import { Cause, Effect, Layer, Logger } from "effect";
 import { SqlError } from "effect/sql";
 
 import { redactCause } from "@node-effect/application";
-import { AppConfig } from "@node-effect/config";
+import { AppConfig, runtimeRoleConfig } from "@node-effect/config";
 
 import { diagnosticsFromCause } from "./error-diagnostics.ts";
-import { Database, DatabaseLive, PgClientLive } from "./postgres.ts";
+import { Database, DatabaseLive, MigrationPgClientLive } from "./postgres.ts";
+import { checkRuntimeRole, provisionRuntimeRole } from "./runtime-role.ts";
 
 const migrationsFolder = join(import.meta.dirname, "../../../drizzle");
 
@@ -49,12 +50,29 @@ const reportMigrationFailure = (cause: Cause.Cause<unknown>) => {
 };
 
 const MigrationDatabaseLive = DatabaseLive.pipe(
-  Layer.provide(PgClientLive),
+  Layer.provideMerge(MigrationPgClientLive),
   Layer.provide(AppConfig.layer),
 );
 
-const migration = migrateDatabase().pipe(
-  Effect.andThen(Effect.logInfo("Database migrations applied")),
+// The runtime role's settings are read, and the role checked, before anything
+// changes, so a missing password or a role that is not safe to provision fails
+// the run untouched. Its grants follow the migrations' commit in a transaction
+// of their own: drizzle's migrator owns its transaction, and the grants must
+// see the tables it created. Should they fail, the migrations stay applied,
+// which a release tolerates anyway because the running version must work with
+// them, and the next run grants again.
+const migration = Effect.gen(function* () {
+  const runtimeRole = yield* runtimeRoleConfig;
+
+  yield* checkRuntimeRole(runtimeRole);
+  yield* migrateDatabase();
+  yield* Effect.logInfo("Database migrations applied");
+  yield* provisionRuntimeRole(runtimeRole);
+
+  yield* Effect.logInfo("Database runtime role provisioned").pipe(
+    Effect.annotateLogs({ role: runtimeRole.name }),
+  );
+}).pipe(
   Effect.provide(MigrationDatabaseLive),
   Effect.tapCause(reportMigrationFailure),
   Effect.provide(Logger.layer([Logger.consoleJson])),

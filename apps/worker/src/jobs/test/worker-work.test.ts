@@ -15,6 +15,8 @@ const repositoryFailure = new UserRepositoryError({
 const listingWith = (list: UserRepository["Service"]["list"]) =>
   Layer.mock(UserRepository, { list });
 
+const timings = { intervalMs: 1000, passTimeoutMs: 60_000 };
+
 describe("pollWorkerWork", () => {
   it.effect("starts at once, never overlaps, and waits after each pass", () =>
     Effect.gen(function* () {
@@ -38,7 +40,7 @@ describe("pollWorkerWork", () => {
         }),
       );
 
-      const worker = yield* pollWorkerWork(1000).pipe(
+      const worker = yield* pollWorkerWork(timings).pipe(
         Effect.provide(repository),
         Effect.forkScoped,
       );
@@ -73,7 +75,7 @@ describe("pollWorkerWork", () => {
         }),
       );
 
-      const exit = yield* pollWorkerWork(1000).pipe(
+      const exit = yield* pollWorkerWork(timings).pipe(
         Effect.provide(repository),
         Effect.exit,
       );
@@ -90,7 +92,7 @@ describe("pollWorkerWork", () => {
     Effect.gen(function* () {
       const defect = new Error("UNEXPECTED_FAILURE");
 
-      const exit = yield* pollWorkerWork(1000).pipe(
+      const exit = yield* pollWorkerWork(timings).pipe(
         Effect.provide(listingWith(() => Effect.die(defect))),
         Effect.exit,
       );
@@ -121,7 +123,7 @@ describe("pollWorkerWork", () => {
         ),
       );
 
-      const worker = yield* pollWorkerWork(1000).pipe(
+      const worker = yield* pollWorkerWork(timings).pipe(
         Effect.provide(repository),
         Effect.forkScoped,
       );
@@ -137,6 +139,75 @@ describe("pollWorkerWork", () => {
       assert.strictEqual(calls, 1);
     }),
   );
+
+  it.effect(
+    "fails when a pass outlives the pass timeout, interrupting it",
+    () =>
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        let cleanedUp = false;
+
+        const repository = listingWith(() =>
+          Effect.gen(function* () {
+            yield* Deferred.succeed(started, undefined);
+
+            return yield* Effect.never;
+          }).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                cleanedUp = true;
+              }),
+            ),
+          ),
+        );
+
+        const worker = yield* pollWorkerWork(timings).pipe(
+          Effect.provide(repository),
+          Effect.forkScoped,
+        );
+
+        yield* Deferred.await(started);
+        yield* TestClock.adjust(timings.passTimeoutMs - 1);
+
+        assert.isUndefined(
+          worker.pollUnsafe(),
+          "a pass may run up to the limit",
+        );
+
+        yield* TestClock.adjust(1);
+        const exit = yield* Fiber.await(worker);
+
+        assert(Exit.isFailure(exit));
+        const error = Cause.squash(exit.cause);
+        assert(Cause.isTimeoutError(error));
+        assert.match(error.message, /sample-users/);
+        assert.isTrue(cleanedUp, "the timed-out pass is interrupted");
+      }),
+  );
+
+  it.effect("limits each pass, not the loop", () =>
+    Effect.gen(function* () {
+      let calls = 0;
+
+      const repository = listingWith(() =>
+        Effect.sync(() => {
+          calls += 1;
+
+          return [];
+        }),
+      );
+
+      const worker = yield* pollWorkerWork({
+        intervalMs: 1000,
+        passTimeoutMs: 1500,
+      }).pipe(Effect.provide(repository), Effect.forkScoped);
+
+      yield* TestClock.adjust(10_000);
+
+      assert.isUndefined(worker.pollUnsafe());
+      assert.strictEqual(calls, 11);
+    }).pipe(Effect.provide(Logger.layer([]))),
+  );
 });
 
 describe("processWorkerWorkPass", () => {
@@ -144,7 +215,7 @@ describe("processWorkerWorkPass", () => {
     Effect.gen(function* () {
       let calls = 0;
 
-      yield* processWorkerWorkPass().pipe(
+      yield* processWorkerWorkPass(timings.passTimeoutMs).pipe(
         Effect.provide(
           listingWith(() =>
             Effect.sync(() => {
@@ -163,12 +234,28 @@ describe("processWorkerWorkPass", () => {
 
   it.effect("fails with the job's error", () =>
     Effect.gen(function* () {
-      const error = yield* processWorkerWorkPass().pipe(
+      const error = yield* processWorkerWorkPass(timings.passTimeoutMs).pipe(
         Effect.provide(listingWith(() => Effect.fail(repositoryFailure))),
         Effect.flip,
       );
 
       assert.strictEqual(error, repositoryFailure);
+    }),
+  );
+
+  it.effect("fails with a TimeoutError when a job outlives the timeout", () =>
+    Effect.gen(function* () {
+      const pass = yield* processWorkerWorkPass(timings.passTimeoutMs).pipe(
+        Effect.provide(listingWith(() => Effect.never)),
+        Effect.flip,
+        Effect.forkScoped,
+      );
+
+      yield* TestClock.adjust(timings.passTimeoutMs);
+      const error = yield* Fiber.join(pass);
+
+      assert(Cause.isTimeoutError(error));
+      assert.match(error.message, /sample-users/);
     }),
   );
 });

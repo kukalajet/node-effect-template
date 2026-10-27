@@ -58,18 +58,23 @@ The API listens on `http://127.0.0.1:8000`; open `/docs` for Swagger UI.
 
 ### Environment
 
-| Variable                                            | Default            | Used by                                                           |
-| --------------------------------------------------- | ------------------ | ----------------------------------------------------------------- |
-| `DATABASE_URL`                                      | required           | API, worker, migrations, Drizzle Kit, PostgreSQL tests            |
-| `API_HOST`                                          | `127.0.0.1`        | API                                                               |
-| `API_PORT`                                          | `8000`             | API; Compose also publishes the container API on it               |
-| `WORKER_POLL_INTERVAL_MS`                           | `5000`             | Worker: the pause after each pass of a job                        |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | see `.env.example` | Compose's PostgreSQL, and the database URL Compose gives the apps |
-| `POSTGRES_PORT`                                     | `5432`             | The loopback port Compose publishes PostgreSQL on                 |
+| Variable                                            | Default            | Used by                                                                   |
+| --------------------------------------------------- | ------------------ | ------------------------------------------------------------------------- |
+| `DATABASE_URL`                                      | required           | API, worker, migrations, Drizzle Kit, PostgreSQL tests                    |
+| `DATABASE_STATEMENT_TIMEOUT_MS`                     | `10000`            | API and worker: PostgreSQL cancels a statement that runs longer (below)   |
+| `API_HOST`                                          | `127.0.0.1`        | API                                                                       |
+| `API_PORT`                                          | `8000`             | API; Compose also publishes the container API on it                       |
+| `WORKER_POLL_INTERVAL_MS`                           | `5000`             | Worker: the pause after each pass of a job                                |
+| `WORKER_PASS_TIMEOUT_MS`                            | `60000`            | Worker: a pass of a job that runs longer fails the worker                 |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | see `.env.example` | Compose's PostgreSQL, and the database URL Compose gives `migrate`        |
+| `APP_DATABASE_USER`, `APP_DATABASE_PASSWORD`        | see `.env.example` | `migrate`, which creates this role; Compose's API and worker log in as it |
+| `POSTGRES_PORT`                                     | `5432`             | The loopback port Compose publishes PostgreSQL on                         |
 
 `packages/config` validates the application variables; `DATABASE_URL` stays
 redacted in logs. If you change `POSTGRES_PORT` or the credentials, change
-`DATABASE_URL` in `.env` to match.
+`DATABASE_URL` in `.env` to match. Native commands all use that one owner URL,
+so `pnpm dev:api` and `pnpm dev:worker` run as the owner, unlike the containers
+(see [Database roles](#database-roles)).
 
 ## Application behavior
 
@@ -101,10 +106,37 @@ The API starts while the database is unavailable, because the connection pool
 opens connections on demand. Liveness stays 200 during an outage; readiness and
 user requests fail until PostgreSQL returns.
 
+Database work has time limits. On the API's and the worker's connections
+PostgreSQL cancels a statement after `DATABASE_STATEMENT_TIMEOUT_MS`
+(SQLSTATE 57014) and a wait for a lock after 8 seconds (55P03), and ends a
+session left idle inside a transaction for 30 seconds. A query waits at most 5
+seconds for a pooled connection. PostgreSQL enforces its own limits, so none of
+them fires when the server stops answering; each repository call therefore also
+gives up by itself after the pool wait, the statement timeout and 2 seconds more
+(17 seconds by default), and the driver then takes up to 5 seconds to cancel the
+query. A statement, lock or pool timeout, or a call that gives up, is a failed
+database operation: `500 DATABASE_ERROR`, or `503` for readiness, which gives up
+after 5 seconds, logged with its safe diagnostics. A session ended for idling
+inside a transaction takes its connection with it, so that transaction fails
+with a defect instead, which the API answers with an empty 500 and the worker
+with a restart (see `packages/database/src/postgres.ts`).
+
+`DATABASE_STATEMENT_TIMEOUT_MS` accepts 1 to 2147483647, PostgreSQL's limit.
+Below 8000, a statement waiting for a lock is cancelled as a statement timeout
+(57014) before its lock wait gives up, and below 5000, a query queued behind a
+migration that waits for a lock fails before the migration gives up. Migrations
+run on their own connection, without a statement timeout, and give up after
+waiting 5 seconds for a lock.
+
 The worker runs each job on its own loop, waiting `WORKER_POLL_INTERVAL_MS`
 after each pass. The example job reads up to five users and logs how many it
 found. The first failure in any loop stops the worker with exit code 1, and the
-process supervisor (Compose's `restart: unless-stopped`) starts it again. The
+process supervisor (Compose's `restart: unless-stopped`) starts it again. A pass
+that runs longer than `WORKER_PASS_TIMEOUT_MS` is interrupted, so its open
+transaction never commits, and fails the worker the same way with a
+`TimeoutError` naming the job; split work that needs longer into several passes.
+If the pass is waiting on a database that has stopped answering, the driver
+first takes up to 5 seconds to cancel the query, and SIGTERM waits as long. The
 polling example provides no claims, leases, checkpoints or retries.
 
 For one pass of every job, then exit:
@@ -201,8 +233,9 @@ docker compose run --rm worker-once
   `packages/`, one file at a time, against a real PostgreSQL. Each test creates
   a schema with a random name, applies the migrations in `drizzle/`, and drops
   the schema afterwards. It needs `DATABASE_URL`, from the environment or
-  `.env`; with the local stack, `docker compose up -d --wait postgresql` is
-  enough. It is not part of `pnpm check`; CI runs it as its own job.
+  `.env`, for a superuser, because the runtime role tests create and drop roles;
+  with the local stack, `docker compose up -d --wait postgresql` is enough. It
+  is not part of `pnpm check`; CI runs it as its own job.
 
 ## Database schema and migrations
 
@@ -229,6 +262,42 @@ transaction and records them in `drizzle.__drizzle_migrations`, the same journal
 Drizzle Kit uses, so either tool skips what the other applied. Neither
 application migrates at startup.
 
+### Database roles
+
+Two PostgreSQL roles share the database. `migrate` connects as the owner,
+`POSTGRES_USER`, which the PostgreSQL image makes a superuser. The API and the
+worker in Compose and in production connect as the runtime role,
+`APP_DATABASE_USER`. It may read, insert, update and delete rows in the tables
+of the `public` schema and use their sequences. It is no superuser and belongs
+to no other role, so it cannot create, alter, drop or truncate those tables,
+create schemas or roles, read the migration journal in `drizzle`, read or write
+server files, or run programs on the server with `COPY ... TO PROGRAM`. SQL
+injection therefore reaches the application's rows, not the schema or a shell
+next to the data volume.
+
+The role keeps what PostgreSQL grants every role: it can connect to the
+cluster's other databases, without creating anything there; create temporary
+tables and functions, which last as long as its session; create large objects;
+call functions open to everyone; and change its own password and session
+defaults. Every `migrate` run sets the password and resets those defaults.
+
+After applying the migrations, every `migrate` run creates the runtime role or
+updates it (`packages/database/src/runtime-role.ts`): it sets its attributes and
+its password from `APP_DATABASE_PASSWORD`, so changing the password and running
+`migrate` again rotates it, clears settings stored for the role, and grants it
+access to every table in `public`, including tables the owner creates later. The
+password reaches PostgreSQL only as a salted SCRAM-SHA-256 hash. A table in
+another schema needs its own grants, in the migration that creates it.
+
+`APP_DATABASE_USER` is lowercase letters, digits and `_`, does not start with a
+digit, has at most 63 characters, and is not `public`, `none` or a name starting
+with `pg_`. Name a role no other client uses: before it changes anything,
+`migrate` fails when the name is the owner or an existing role that is a
+superuser, belongs to another role, or owns database objects. Renaming the role
+later leaves the old one able to log in with its old grants; once the release
+with the new name serves, remove it as the owner with
+`REASSIGN OWNED BY <old> TO CURRENT_USER; DROP OWNED BY <old>; DROP ROLE <old>;`.
+
 ## Local container stack
 
 The default Compose setup runs only PostgreSQL, published on
@@ -241,12 +310,13 @@ docker compose logs -f api worker
 ```
 
 The image build runs `pnpm check`. Compose waits for PostgreSQL, runs `migrate`,
-then starts the API and worker. The apps get a database URL built from
-`POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB`, so use URL-safe
-credentials. The API is published on `127.0.0.1:${API_PORT:-8000}`; do not run
-the native and container APIs on the same port. Rebuild with the same command
-after changes. To apply new migrations through the image, rebuild it and run
-`docker compose run --rm migrate`.
+then starts the API and worker. `migrate` gets a database URL built from
+`POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB`, and the API and worker
+one built from `APP_DATABASE_USER`, `APP_DATABASE_PASSWORD` and `POSTGRES_DB`,
+so use URL-safe credentials. The API is published on
+`127.0.0.1:${API_PORT:-8000}`; do not run the native and container APIs on the
+same port. Rebuild with the same command after changes. To apply new migrations
+through the image, rebuild it and run `docker compose run --rm migrate`.
 
 Every container has a read-only root filesystem, no Linux capabilities and
 `no-new-privileges`. The application containers can write only to a 16 MB `/tmp`
@@ -285,9 +355,10 @@ pnpm smoke:docker
 fresh database. It checks liveness and readiness, runs `scripts/smoke-api.ts`
 inside the API container (every endpoint, error status and the OpenAPI and docs
 pages), and runs `worker-once` and `migrate` again. It checks that the worker
-has completed a pass without restarting, then stops PostgreSQL to check that
-liveness stays up, readiness returns 503 and the worker restarts. Finally it
-restores the database and checks that the data and migration history survived
+has completed a pass without restarting and that the API and worker are
+connected as the runtime role, not a superuser, then stops PostgreSQL to check
+that liveness stays up, readiness returns 503 and the worker restarts. Finally
+it restores the database and checks that the data and migration history survived
 and that the worker completes a pass again. It removes only its own containers
 and volume.
 

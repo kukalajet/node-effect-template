@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Runs the built image against a real PostgreSQL in an isolated Compose project:
-# migrations, API and worker-once smoke checks, liveness that survives a
-# database outage, the fail-fast worker's restart and recovery, and data kept in
-# the volume.
+# migrations, API and worker-once smoke checks, the API and worker connected as
+# the non-superuser runtime role, liveness that survives a database outage, the
+# fail-fast worker's restart and recovery, and data kept in the volume.
 # Build the image first (`docker build -t node-effect-template:local .`).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export APP_IMAGE=${APP_IMAGE:-node-effect-template:local}
 export POSTGRES_DB=smoke_test POSTGRES_USER=smoke_test POSTGRES_PASSWORD=smoke_test
+export APP_DATABASE_USER=smoke_test_app APP_DATABASE_PASSWORD=smoke_test_app
 export API_PORT=0 COMPOSE_PROFILES='' WORKER_POLL_INTERVAL_MS=500
 project="node-effect-smoke-${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-1}"
 compose=(docker compose --env-file .env.example -f docker-compose.yml --profile app -p "$project")
@@ -55,6 +56,15 @@ docker_time() {
   docker info --format '{{.SystemTime}}'
 }
 
+psql_query() {
+  "${compose[@]}" exec -T postgresql psql \
+    --username "$POSTGRES_USER" \
+    --dbname "$POSTGRES_DB" \
+    --tuples-only \
+    --no-align \
+    --command "$1"
+}
+
 started=$(docker_time)
 "${compose[@]}" up -d --no-build --wait --wait-timeout 120
 address=$("${compose[@]}" port api 8000)
@@ -69,6 +79,17 @@ curl --fail --silent --show-error "http://$address/health/ready"
 worker_id=$("${compose[@]}" ps -q worker)
 wait_for_worker_pass "$started"
 test "$(docker inspect --format '{{.State.Status}} {{.RestartCount}}' "$worker_id")" = "running 0"
+
+# The API and the worker, at least two containers with pooled connections
+# still open, are connected as the runtime role, which is no superuser and
+# belongs to no other role whose privileges it would inherit.
+application_sessions="from pg_stat_activity join pg_roles on rolname = usename
+  where application_name = 'node-effect-template'"
+roles=$(psql_query "select string_agg(distinct usename || ' ' || rolsuper, ',') $application_sessions")
+test "$roles" = "$APP_DATABASE_USER false"
+test "$(psql_query "select count(distinct client_addr) $application_sessions")" -ge 2
+test "$(psql_query "select count(*) from pg_auth_members
+  where member = '$APP_DATABASE_USER'::regrole")" -eq 0
 
 # Database loss affects readiness, not the API process liveness probe. The
 # worker fails fast and relies on its restart policy.
@@ -91,12 +112,7 @@ restored=$(docker_time)
 address=$("${compose[@]}" port api 8000)
 curl --fail --silent --show-error "http://$address/health/ready"
 curl --fail --silent --show-error "http://$address/users" | grep -F 'ada@example.com' > /dev/null
-migration_count=$("${compose[@]}" exec -T postgresql psql \
-  --username "$POSTGRES_USER" \
-  --dbname "$POSTGRES_DB" \
-  --tuples-only \
-  --no-align \
-  --command 'select count(*) from drizzle.__drizzle_migrations')
+migration_count=$(psql_query 'select count(*) from drizzle.__drizzle_migrations')
 test "$migration_count" -gt 0
 wait_for_worker_pass "$restored"
-echo "Docker smoke checks passed, including independent liveness, persistent data, and worker modes"
+echo "Docker smoke checks passed, including the runtime role, independent liveness, persistent data, and worker modes"
