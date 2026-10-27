@@ -21,6 +21,14 @@ Lint (`.oxlintrc.json`) also requires:
 - Imports in five groups: `node:` built-ins, packages, `@node-effect/*`, `../`,
   then `./`.
 - No module mocking: replace a service with `Layer.succeed` or `Layer.mock`.
+- No `console`, `process.env` or `Effect.run*` in `apps/` or `packages/` outside
+  tests: log with Effect, read `AppConfig`, and run effects only with
+  `NodeRuntime.runMain` in an entry point.
+- No `@node-effect/database` or `effect/sql` imports in any folder under
+  `apps/*/src/`, tests included. Provide adapters in the composition roots
+  directly in `src/` (`request-services-live.ts`, `worker-runtime.ts`).
+- No non-null assertions (`x!`), no `{…} as T` (annotate the variable or use
+  `satisfies`), and no shadowed names.
 
 Node runs the TypeScript sources directly by stripping types, so relative
 imports end in `.ts` (lint rejects `.js`), type-only imports use `import type`,
@@ -28,5 +36,6 @@ and enums, namespaces, parameter properties and `<T>value` assertions are not
 allowed.
 
 `pnpm check` must pass before a change is done; `pnpm fix` formats and
-lint-fixes. Never edit the migrations in `drizzle/` or the vendored
-`tools/oxlint/anti-slop/`.
+lint-fixes. `pnpm check` includes `pnpm db:verify`, so a schema change needs its
+generated migration (`pnpm db:generate`). Never edit the migrations in
+`drizzle/` or the vendored `tools/oxlint/anti-slop/`.

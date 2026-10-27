@@ -30,6 +30,15 @@ The image carries this directory as `/app/deploy/vps`. Each release installs
 | `migrate`     | Same image, `node packages/database/src/migrate.ts` | Nothing inbound; runs once per release | None                   |
 | `postgresql`  | `postgres:18.6-alpine`, pinned by digest            | Docker network; host `127.0.0.1:5432`  | `postgres_data` volume |
 
+Every service has a read-only root filesystem, drops all Linux capabilities and
+sets `no-new-privileges`. `api`, `worker` and `migrate` write only to a 16 MB
+`/tmp` and run at most 128 processes and threads. `postgresql` starts as the
+image's `postgres` user (uid 70) and writes only to its volume,
+`/var/run/postgresql` and `/tmp`. Keep `postgres_data` a named volume: Docker
+creates it owned by that user, while a bind-mounted host directory would have to
+be given to uid 70 first. `cloudflared` runs as its image's non-root user and
+writes nothing.
+
 `compose.yml` differs from the local `docker-compose.yml`:
 
 - It pulls images from GHCR and never builds on the host. Until the first
@@ -159,6 +168,12 @@ published ports bypass `ufw`.
 
 If the API is not meant to be public, put the hostname, or at least `/docs` and
 `/openapi.json`, behind Cloudflare Access.
+
+The API keeps idle connections open for 95 seconds (`keepAliveTimeout` in
+`apps/api/src/main.ts`), longer than `cloudflared`'s default
+`originRequest.keepAliveTimeout` of 90 seconds, so the tunnel never reuses a
+connection the API is closing. If you raise the tunnel's keep-alive timeout,
+raise the API's above it.
 
 ### 6. Files and secrets on the host
 
@@ -381,6 +396,10 @@ bin/compose exec postgresql sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"'
 tail releases.log
 ```
 
+`bin/compose exec postgresql` runs as the `postgres` user, not root, and the
+container's root filesystem is read-only: pass files on standard input, as the
+full restore does, rather than copying them into the container.
+
 - **Database tools:** from your machine, open a tunnel with
   `ssh -N -L 5432:127.0.0.1:5432 root@<server>`.
 - **Change `POSTGRES_PASSWORD`:** PostgreSQL reads `POSTGRES_PASSWORD` only when
@@ -402,7 +421,9 @@ tail releases.log
   digest changes in `compose.yml`; change PostgreSQL's in the restore drill too.
   The release of that commit applies them; a PostgreSQL change restarts the
   database briefly before `migrate` runs. A PostgreSQL major upgrade needs a
-  dump and restore; plan it separately.
+  dump and restore; plan it separately. If PostgreSQL moves to a non-Alpine
+  image, change the `uid` and `gid` of its `/var/run/postgresql` tmpfs in both
+  Compose files: 70 is Alpine's `postgres` user, and Debian's is 999.
 
 ## Pre-launch checklist
 

@@ -7,9 +7,9 @@ type safety; it cannot tell whether a condition says what it means, whether
 abandons the whole operation. These rules cover that gap, for people and agents
 alike.
 
-Lint in this repository (`.oxlintrc.json`) enforces rules 1, 3 and 10, and the
-blank-line part of rule 8; those sections name the lint rule. The rest rely on
-authors and review.
+Lint in this repository (`.oxlintrc.json`) enforces rules 1, 3 and 10, the
+shadowing part of rule 6, and the blank-line part of rule 8; those sections name
+the lint rule. The rest rely on authors and review.
 
 The rules are not a quota. Extract a helper when it names a step or a rule, not
 to make a function shorter. A long function that reads top to bottom as one
@@ -41,9 +41,9 @@ error mapper.
 
 Lint: `anti-slop/no-inline-regex-match` rejects a regex literal passed to
 `test`, `exec`, `match`, `matchAll`, or `search`, unless the result of `.test()`
-is assigned to a named const as in `readDriverCode`. Test files (`**/test/**`
-and `*.test.ts`) are exempt, because there the regex is usually the expected
-value itself.
+is assigned to a named const as in `readDriverCode`. Test files (anything in a
+`test/` folder, and `*.test.ts`, `*.postgres.ts` and `*.fixtures.ts` files) are
+exempt, because there the regex is usually the expected value itself.
 
 ## 2. Keep type narrowing out of the rule
 
@@ -178,6 +178,9 @@ and call the others `cartLines` and `pricedLines`.
 The same applies to state: one concept, one structure. A `seen` set next to a
 `recipients` array is a single idea, "unique recipients in order", which a
 `Map<string, Recipient>` keyed by email expresses directly.
+
+Lint: `eslint/no-shadow` rejects the plainest case, an inner variable that hides
+an outer one with the same name.
 
 ## 7. Keep Effect plumbing out of the main line
 

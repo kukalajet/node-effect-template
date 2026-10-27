@@ -48,6 +48,13 @@ scripts) still resolve from every package during development, but the production
 image installs only each package's declared dependencies. Declare every runtime
 import in the manifest of the package that imports it.
 
+Lint enforces the part pnpm cannot. Both apps depend on `@node-effect/database`
+for their composition roots, so pnpm lets routes and jobs import it too. Lint
+rejects imports of `@node-effect/database` and `effect/sql` in every folder
+under `apps/*/src/`, tests included; only the files directly in `src/` may
+import them. A composition root placed inside a feature folder needs its own
+override in `.oxlintrc.json`.
+
 ## Layout
 
 ```text
@@ -132,26 +139,26 @@ today; ownership, rather than line count, decides the location.
 
 ## Where new code goes
 
-| Code being added                                                           | Location                                                                            |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Endpoint: method, path, params, payload, success and error schemas         | `apps/api/src/<feature>/api-contract.ts`, added to the root `api-contract.ts`       |
-| Handler: calling ports and mapping their errors to responses               | `apps/api/src/<feature>/routes.ts`, provided in `apps/api/src/app.ts`               |
-| Public error response or schema shared by API groups                       | `apps/api/src/api-schemas.ts`                                                       |
-| Mapping a shared failure, such as a persistence failure, to HTTP           | `apps/api/src/http-errors.ts`                                                       |
-| Adapter that the routes need                                               | `apps/api/src/request-services-live.ts`                                             |
-| Worker job, or one-shot work                                               | `apps/worker/src/jobs/`, added to the pass and the loops in `worker-work.ts`        |
-| Port or adapter that a worker job needs                                    | `WorkerRequirements` and `WorkerServicesLive` in `worker-runtime.ts`                |
-| Business value, invariant, entity, command, or domain error                | `packages/domain/src/<feature>.ts`                                                  |
-| Use-case orchestration or outbound service contract                        | `packages/application/src/<feature>/`                                               |
-| Repository error                                                           | beside its port, built with `persistenceFailureFields`                              |
-| PostgreSQL/Drizzle table, query, row mapping, or repository implementation | `packages/database/src/<feature>/`                                                  |
-| A new table file                                                           | `packages/database/src/<feature>/schema.ts`, listed in `drizzle.config.ts`          |
-| A schema change                                                            | the table file, then `pnpm db:generate` writes `drizzle/`                           |
-| Shared PostgreSQL client or Drizzle service                                | `packages/database/src/postgres.ts`                                                 |
-| Environment variable parsing, validation, or defaults                      | `packages/config/src/`, plus `.env.example`, `docker-compose.yml` and `deploy/vps/` |
-| Production layer selection and process startup                             | the executable's composition root                                                   |
-| A fake service for a test                                                  | beside the consuming test                                                           |
-| Fixtures shared by several tests                                           | `*.fixtures.ts` in the `test/` folder                                               |
+| Code being added                                                           | Location                                                                                                 |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Endpoint: method, path, params, payload, success and error schemas         | `apps/api/src/<feature>/api-contract.ts`, added to the root `api-contract.ts`                            |
+| Handler: calling ports and mapping their errors to responses               | `apps/api/src/<feature>/routes.ts`, provided in `apps/api/src/app.ts`                                    |
+| Public error response or schema shared by API groups                       | `apps/api/src/api-schemas.ts`                                                                            |
+| Mapping a shared failure, such as a persistence failure, to HTTP           | `apps/api/src/http-errors.ts`                                                                            |
+| Adapter that the routes need                                               | `apps/api/src/request-services-live.ts`                                                                  |
+| Worker job, or one-shot work                                               | `apps/worker/src/jobs/`, added to the pass and the loops in `worker-work.ts`                             |
+| Port or adapter that a worker job needs                                    | `WorkerRequirements` and `WorkerServicesLive` in `worker-runtime.ts`                                     |
+| Business value, invariant, entity, command, or domain error                | `packages/domain/src/<feature>.ts`                                                                       |
+| Use-case orchestration or outbound service contract                        | `packages/application/src/<feature>/`                                                                    |
+| Repository error                                                           | beside its port, built with `persistenceFailureFields`                                                   |
+| PostgreSQL/Drizzle table, query, row mapping, or repository implementation | `packages/database/src/<feature>/`                                                                       |
+| A new table file                                                           | `packages/database/src/<feature>/schema.ts`; the glob in `drizzle.config.ts` picks it up                 |
+| A schema change                                                            | the table file, then `pnpm db:generate` writes `drizzle/`; `pnpm check` fails until the migration exists |
+| Shared PostgreSQL client or Drizzle service                                | `packages/database/src/postgres.ts`                                                                      |
+| Environment variable parsing, validation, or defaults                      | `packages/config/src/`, plus `.env.example`, `docker-compose.yml` and `deploy/vps/`                      |
+| Production layer selection and process startup                             | the executable's composition root                                                                        |
+| A fake service for a test                                                  | beside the consuming test                                                                                |
+| Fixtures shared by several tests                                           | `*.fixtures.ts` in the `test/` folder                                                                    |
 
 If a use case coordinates several ports or enforces an application workflow,
 give it a named module in `application`. If it only calls one repository method
@@ -309,7 +316,9 @@ process liveness; `/health/ready` and its `/health` alias query the database
 with a timeout. Container health checks use liveness, so a database outage never
 restarts the API; deployment smoke checks and uptime monitoring use readiness.
 On shutdown the server stops accepting connections and gives in-flight requests
-up to 10 seconds.
+up to 10 seconds. It keeps an idle keep-alive connection open for 95 seconds,
+longer than Cloudflare Tunnel's 90, so the tunnel never sends a request on a
+connection the API is closing (`apps/api/src/main.ts`).
 
 The worker's persistent entry point runs each job on an independent loop, so a
 slow job never delays another, and passes of one job never overlap. The first

@@ -73,16 +73,16 @@ redacted in logs. If you change `POSTGRES_PORT` or the credentials, change
 
 ## Application behavior
 
-| Endpoint            | Purpose                                                                      |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `GET /health/live`  | Process liveness; never touches PostgreSQL                                   |
-| `GET /health/ready` | PostgreSQL readiness (`select 1`, 5 second timeout); 503 when unavailable    |
-| `GET /health`       | Alias for readiness                                                          |
-| `GET /users`        | Every user, newest first                                                     |
-| `GET /users/:id`    | One user; 400 for a malformed id, 404 when unknown                           |
-| `POST /users`       | 201 with the user; 400 for invalid input, 409 for a taken email, 413 > 4 KiB |
-| `GET /openapi.json` | OpenAPI 3.1 document generated from the endpoint contracts                   |
-| `GET /docs`         | Swagger UI for that document                                                 |
+| Endpoint            | Purpose                                                                          |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `GET /health/live`  | Process liveness; never touches PostgreSQL                                       |
+| `GET /health/ready` | PostgreSQL readiness (`select 1`, 5 second timeout); 503 when unavailable        |
+| `GET /health`       | Alias for readiness                                                              |
+| `GET /users`        | Up to `limit` users (1–100, default 50), newest first; 400 for any other `limit` |
+| `GET /users/:id`    | One user; 400 for a malformed id, 404 when unknown                               |
+| `POST /users`       | 201 with the user; 400 for invalid input, 409 for a taken email, 413 > 4 KiB     |
+| `GET /openapi.json` | OpenAPI 3.1 document generated from the endpoint contracts                       |
+| `GET /docs`         | Swagger UI for that document                                                     |
 
 Every error response has the same shape, and the contract lists each code an
 endpoint can return:
@@ -117,25 +117,26 @@ docker compose run --rm worker-once
 
 ## Scripts
 
-| Script                                | What it does                                                                   |
-| ------------------------------------- | ------------------------------------------------------------------------------ |
-| `pnpm run init <name>`                | Renames the template (run once, first)                                         |
-| `pnpm dev:api`, `pnpm dev:worker`     | Runs the API or worker with `.env`, restarting on changes                      |
-| `pnpm start:api`, `pnpm start:worker` | Runs the API or worker with `.env`, without watching                           |
-| `pnpm sample:worker`                  | Runs one pass of every worker job, then exits                                  |
-| `pnpm db:generate --name=<change>`    | Generates a migration in `drizzle/` from schema changes (Drizzle Kit)          |
-| `pnpm db:check`                       | Checks the migrations for consistency (Drizzle Kit)                            |
-| `pnpm db:migrate`                     | Applies pending migrations with `packages/database/src/migrate.ts`             |
-| `pnpm db:studio`                      | Opens Drizzle Studio                                                           |
-| `pnpm openapi`                        | Prints the OpenAPI document: `pnpm --silent openapi > openapi.json`            |
-| `pnpm fmt`                            | Formats every file with oxfmt                                                  |
-| `pnpm lint`                           | Lints with oxlint                                                              |
-| `pnpm fix`                            | Formats, then applies safe lint fixes                                          |
-| `pnpm typecheck`                      | Type-checks with `tsc`                                                         |
-| `pnpm test`                           | Runs the unit tests                                                            |
-| `pnpm test:postgres`                  | Runs the tests that need PostgreSQL                                            |
-| `pnpm check`                          | Format check, lint, type check and unit tests: what CI and the image build run |
-| `pnpm smoke:docker`                   | Smoke-tests a built image against a real PostgreSQL                            |
+| Script                                | What it does                                                                                          |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `pnpm run init <name>`                | Renames the template (run once, first)                                                                |
+| `pnpm dev:api`, `pnpm dev:worker`     | Runs the API or worker with `.env`, restarting on changes                                             |
+| `pnpm start:api`, `pnpm start:worker` | Runs the API or worker with `.env`, without watching                                                  |
+| `pnpm sample:worker`                  | Runs one pass of every worker job, then exits                                                         |
+| `pnpm db:generate --name=<change>`    | Generates a migration in `drizzle/` from schema changes (Drizzle Kit)                                 |
+| `pnpm db:check`                       | Prints Drizzle Kit's migration check; it exits 0 even when the schema differs                         |
+| `pnpm db:verify`                      | Fails when the schema files and the migrations in `drizzle/` differ; part of `pnpm check`             |
+| `pnpm db:migrate`                     | Applies pending migrations with `packages/database/src/migrate.ts`                                    |
+| `pnpm db:studio`                      | Opens Drizzle Studio                                                                                  |
+| `pnpm openapi`                        | Prints the OpenAPI document: `pnpm --silent openapi > openapi.json`                                   |
+| `pnpm fmt`                            | Formats every file with oxfmt                                                                         |
+| `pnpm lint`                           | Lints with oxlint                                                                                     |
+| `pnpm fix`                            | Formats, then applies safe lint fixes                                                                 |
+| `pnpm typecheck`                      | Type-checks with `tsc`                                                                                |
+| `pnpm test`                           | Runs the unit tests                                                                                   |
+| `pnpm test:postgres`                  | Runs the tests that need PostgreSQL                                                                   |
+| `pnpm check`                          | Format check, lint, type check, migration drift check and unit tests: what CI and the image build run |
+| `pnpm smoke:docker`                   | Smoke-tests a built image against a real PostgreSQL                                                   |
 
 ## Toolchain
 
@@ -161,6 +162,16 @@ docker compose run --rm worker-once
   multi-line blocks and statements, no nested ternaries, and no module mocking,
   among others. [READABILITY.md](./READABILITY.md) says which of its rules lint
   enforces.
+- **Config-only lint guards** in `.oxlintrc.json` reject `console`,
+  `process.env` (read `AppConfig`) and `Effect.run*` (run effects with
+  `NodeRuntime.runMain` in an entry point) in `apps/` and `packages/`. They
+  reject imports of `@node-effect/database` and `effect/sql` in every folder
+  under `apps/*/src/`, tests included; only the composition roots directly in
+  `src/` may import them. Everywhere, they reject non-null assertions (`x!`),
+  `{…} as T` object literal assertions and shadowed names. Tests,
+  `*.postgres.ts`, `*.fixtures.ts` and `postgres.setup.ts` may use `console`,
+  `process.env`, `Effect.run*` and `!`. The `Effect.run*` guard matches the call
+  as written, so `import { runPromise } from "effect/Effect"` slips past it.
 - **Formatting** follows `.oxfmtrc.json`: width 80, double quotes, semicolons,
   trailing commas, and Markdown prose wrapped at 80 columns. Import sorting is
   lint's job, in five groups: `node:` built-ins, packages, `@node-effect/*`,
@@ -197,14 +208,20 @@ docker compose run --rm worker-once
 
 ```sh
 pnpm db:generate --name=describe-change
-pnpm db:check
+pnpm db:verify
 pnpm db:migrate
 pnpm db:studio
 ```
 
-Drizzle Kit generates migrations from the table definitions listed under
-`schema` in `drizzle.config.ts`; add each new feature's `schema.ts` there. It
+Drizzle Kit generates migrations from the table definitions in every
+`packages/database/src/<feature>/schema.ts` (the `schema` glob in
+`drizzle.config.ts`), so a new feature's table file needs no config change. It
 reads `.env` itself. Commit each generated `drizzle/<timestamp>_<name>/` folder.
+
+`pnpm db:verify`, which `pnpm check` also runs, fails when a schema change has
+no migration, including an index or constraint that no test would notice.
+Drizzle Kit's own `check` reports that only as a warning and exits 0. The
+verification reads files only and needs no database or `DATABASE_URL`.
 
 `pnpm db:migrate`, the Compose `migrate` service and production releases all run
 `packages/database/src/migrate.ts`. It applies pending migrations in one
@@ -230,6 +247,12 @@ credentials. The API is published on `127.0.0.1:${API_PORT:-8000}`; do not run
 the native and container APIs on the same port. Rebuild with the same command
 after changes. To apply new migrations through the image, rebuild it and run
 `docker compose run --rm migrate`.
+
+Every container has a read-only root filesystem, no Linux capabilities and
+`no-new-privileges`. The application containers can write only to a 16 MB `/tmp`
+and run at most 128 processes and threads. PostgreSQL starts as the image's
+`postgres` user and writes only to its volume, `/var/run/postgresql` and `/tmp`.
+Code that writes files must use `/tmp` or a volume.
 
 Database data survives container recreation and `docker compose down`; adding
 `--volumes` deletes it.
