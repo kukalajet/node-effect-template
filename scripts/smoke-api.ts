@@ -70,8 +70,14 @@ strictEqual(new Date(user.createdAt).toISOString(), user.createdAt);
 deepStrictEqual(await (await request(`/users/${user.id}`, 200)).json(), user);
 deepStrictEqual(await (await request("/users", 200)).json(), { users: [user] });
 
+deepStrictEqual(await (await request("/users?limit=1", 200)).json(), {
+  users: [user],
+});
+
 await expectStatus("/users", 409, create);
 await expectStatus("/users/not-a-uuid", 400);
+await expectStatus("/users?limit=0", 400);
+await expectStatus("/users?limit=101", 400);
 await expectStatus("/users/00000000-0000-4000-8000-000000000000", 404);
 await expectStatus("/users", 400, postUser("{"));
 

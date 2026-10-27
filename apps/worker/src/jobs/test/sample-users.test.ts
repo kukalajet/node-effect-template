@@ -15,7 +15,7 @@ const user = {
 describe("sampleUsersPass", () => {
   it.effect("reads at most five users and logs how many it found", () =>
     Effect.gen(function* () {
-      const limits: Array<number | undefined> = [];
+      const limits: Array<number> = [];
       const lines: Array<string> = [];
 
       const logger = Logger.map(Logger.formatJson, (line) => {

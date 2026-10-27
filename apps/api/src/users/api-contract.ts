@@ -1,5 +1,10 @@
-import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
+import { Effect, Schema } from "effect";
+import {
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiSchema,
+  OpenApi,
+} from "effect/http-api";
 
 import { CreateUserSchema, UserId, UserSchema } from "@node-effect/domain";
 
@@ -11,6 +16,14 @@ import {
 } from "../api-schemas.ts";
 
 const UserParams = Schema.Struct({ id: UserId });
+
+// The list has no cursor, so `limit` caps what one request can read. A project
+// that needs to page past the cap adds its own pagination.
+const UserListQuery = Schema.Struct({
+  limit: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 })).pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(50)),
+  ),
+});
 
 const UserListResponse = Schema.Struct({ users: Schema.Array(UserSchema) });
 
@@ -28,10 +41,16 @@ const UserAlreadyExistsResponse = publicError(
 
 const UsersApi = HttpApiGroup.make("users")
   .add(
+    // The OpenAPI document describes a query parameter by its string encoding,
+    // so the description states the range and default.
     HttpApiEndpoint.get("list", "/users", {
+      query: UserListQuery,
       success: UserListResponse,
       error: DatabaseErrorResponse,
-    }),
+    }).annotate(
+      OpenApi.Description,
+      "Lists users, newest first. `limit` is an integer from 1 to 100 and defaults to 50.",
+    ),
     HttpApiEndpoint.get("get", "/users/:id", {
       params: UserParams,
       success: UserSchema,
@@ -53,6 +72,7 @@ const UsersApi = HttpApiGroup.make("users")
 
 export {
   UserAlreadyExistsResponse,
+  UserListQuery,
   UserNotFoundResponse,
   UserParams,
   UsersApi,

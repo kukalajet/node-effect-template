@@ -58,7 +58,7 @@ const runOperation = (operation: "insert" | "findById" | "list") =>
       case "findById":
         return [yield* repository.findById(user.id)];
       case "list":
-        return yield* repository.list();
+        return yield* repository.list(10);
     }
   });
 
@@ -108,7 +108,7 @@ describe("UserRepositoryLive", () => {
     Effect.gen(function* () {
       const repository = yield* UserRepository;
 
-      assert.deepStrictEqual(yield* repository.list(), []);
+      assert.deepStrictEqual(yield* repository.list(10), []);
     }).pipe(Effect.provide(repositoryWithRows([]))),
   );
 });

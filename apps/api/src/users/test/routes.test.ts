@@ -47,9 +47,11 @@ const repositoryFailure = (operation: UserRepositoryError["operation"]) =>
     diagnostics: { reason: "ConnectionError", code: "ECONNREFUSED" },
   });
 
-// Records every insert, so a test can tell whether a request got that far.
+// Records every insert and list limit, so a test can tell whether a request
+// got that far and what it asked for.
 const fakeRepository = (overrides: Partial<UserRepository["Service"]> = {}) => {
   const inserted: Array<unknown> = [];
+  const listLimits: Array<number> = [];
 
   const layer = Layer.succeed(
     UserRepository,
@@ -65,12 +67,17 @@ const fakeRepository = (overrides: Partial<UserRepository["Service"]> = {}) => {
         id === userId
           ? Effect.succeed(user)
           : Effect.fail(new UserNotFound({ id })),
-      list: () => Effect.succeed([user]),
+      list: (limit) =>
+        Effect.sync(() => {
+          listLimits.push(limit);
+
+          return [user];
+        }),
       ...overrides,
     }),
   );
 
-  return { inserted, layer };
+  return { inserted, layer, listLimits };
 };
 
 // Serves the users routes with `repository`, checking every response against
@@ -109,18 +116,53 @@ const invalidRequest = {
 };
 
 describe("GET /users", () => {
-  it("lists users from the repository", async () => {
-    const server = serve(fakeRepository().layer);
+  it("lists up to 50 users when the request sets no limit", async () => {
+    const repository = fakeRepository();
+    const server = serve(repository.layer);
 
     try {
       const response = await server.fetch(get("/users"));
 
       assert.strictEqual(response.status, 200);
       assert.deepStrictEqual(await response.json(), { users: [userJson] });
+      assert.deepStrictEqual(repository.listLimits, [50]);
     } finally {
       await server.dispose();
     }
   });
+
+  for (const limit of [1, 100]) {
+    it(`lists up to ${limit} users for limit=${limit}`, async () => {
+      const repository = fakeRepository();
+      const server = serve(repository.layer);
+
+      try {
+        const response = await server.fetch(get(`/users?limit=${limit}`));
+
+        assert.strictEqual(response.status, 200);
+        assert.deepStrictEqual(repository.listLimits, [limit]);
+      } finally {
+        await server.dispose();
+      }
+    });
+  }
+
+  for (const limit of ["0", "101", "1.5", "ten", ""]) {
+    it(`answers 400 for limit=${limit} without reading users`, async () => {
+      const repository = fakeRepository();
+      const server = serve(repository.layer);
+
+      try {
+        const response = await server.fetch(get(`/users?limit=${limit}`));
+
+        assert.strictEqual(response.status, 400);
+        assert.deepStrictEqual(await response.json(), invalidRequest);
+        assert.deepStrictEqual(repository.listLimits, []);
+      } finally {
+        await server.dispose();
+      }
+    });
+  }
 
   it("answers 500 without details when the repository fails", async () => {
     const server = serve(

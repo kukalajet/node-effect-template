@@ -65,14 +65,16 @@ const makeUserRepository = Effect.gen(function* () {
     );
   });
 
+  // Users inserted in one transaction share created_at (now() is the
+  // transaction's start time). The id breaks those ties, so the order, and
+  // which users fall under the limit, stays the same between requests.
   const list = Effect.fn("UserRepository.list")(
-    function* (limit?: number) {
-      const query = database
+    function* (limit: number) {
+      const rows = yield* database
         .select()
         .from(users)
-        .orderBy(desc(users.createdAt));
-
-      const rows = yield* limit === undefined ? query : query.limit(limit);
+        .orderBy(desc(users.createdAt), desc(users.id))
+        .limit(limit);
 
       return yield* decodeUserRows(rows);
     },

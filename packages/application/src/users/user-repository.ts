@@ -27,8 +27,9 @@ class UserRepository extends Context.Service<
     readonly findById: (
       id: UserIdType,
     ) => Effect.Effect<User, UserNotFound | UserRepositoryError>;
+    // At most `limit` users, newest first.
     readonly list: (
-      limit?: number,
+      limit: number,
     ) => Effect.Effect<ReadonlyArray<User>, UserRepositoryError>;
   }
 >()("@node-effect/application/UserRepository") {}

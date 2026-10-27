@@ -29,6 +29,14 @@ const unknownId = Schema.decodeUnknownSync(UserId)(
   "70ded4af-dcb4-4148-9e0d-a6bd38192a39",
 );
 
+const lowerId = Schema.decodeUnknownSync(UserId)(
+  "1f6a54e4-0b52-4c43-9a58-0a3c4c1f3b11",
+);
+
+const higherId = Schema.decodeUnknownSync(UserId)(
+  "e2c1b1a0-5a8e-4f5c-8d9e-7b6a5c4d3e22",
+);
+
 // Every later insert into users fails as a unique violation of `constraint`.
 const rejectInsertsAs = (constraint: string) =>
   Effect.gen(function* () {
@@ -70,7 +78,7 @@ describe("UserRepositoryLive on PostgreSQL", () => {
         values (${ada.email}, ${ada.displayName}, '2026-08-09T12:00:00Z'),
                (${grace.email}, ${grace.displayName}, '2026-08-10T12:00:00Z')`;
 
-      const users = yield* repository.list();
+      const users = yield* repository.list(10);
 
       assert.deepStrictEqual(
         users.map((user) => user.email),
@@ -86,11 +94,36 @@ describe("UserRepositoryLive on PostgreSQL", () => {
     }).pipe(withUserDatabase),
   );
 
+  it.live("orders users created at the same time by id", () =>
+    Effect.gen(function* () {
+      const repository = yield* UserRepository;
+      const sql = yield* SqlClient.SqlClient;
+
+      // One statement, so both rows get the same created_at from now().
+      // Ordered by created_at alone, the backward index scan returns ties
+      // last-inserted first, so the higher id goes in first: only the id
+      // tiebreak puts it ahead.
+      yield* sql`insert into users (id, email, display_name)
+        values (${higherId}, ${grace.email}, ${grace.displayName}),
+               (${lowerId}, ${ada.email}, ${ada.displayName})`;
+
+      const users = yield* repository.list(10);
+
+      assert.deepStrictEqual(
+        users.map((user) => user.id),
+        [higherId, lowerId],
+      );
+
+      assert.deepStrictEqual(users[0]?.createdAt, users[1]?.createdAt);
+      assert.deepStrictEqual(yield* repository.list(1), users.slice(0, 1));
+    }).pipe(withUserDatabase),
+  );
+
   it.live("lists no users in an empty table", () =>
     Effect.gen(function* () {
       const repository = yield* UserRepository;
 
-      assert.deepStrictEqual(yield* repository.list(), []);
+      assert.deepStrictEqual(yield* repository.list(10), []);
     }).pipe(withUserDatabase),
   );
 

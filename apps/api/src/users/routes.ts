@@ -11,6 +11,7 @@ import { jsonBody } from "../request-body.ts";
 
 import {
   UserAlreadyExistsResponse,
+  type UserListQuery,
   UserNotFoundResponse,
   type UserParams,
 } from "./api-contract.ts";
@@ -30,12 +31,13 @@ const userAlreadyExists = UserAlreadyExistsResponse.make({
   },
 });
 
-const listUsers = Effect.gen(function* () {
-  const repository = yield* UserRepository;
-  const users = yield* repository.list();
+const listUsers = ({ limit }: typeof UserListQuery.Type) =>
+  Effect.gen(function* () {
+    const repository = yield* UserRepository;
+    const users = yield* repository.list(limit);
 
-  return { users };
-}).pipe(Effect.catchTag("UserRepositoryError", databaseFailure));
+    return { users };
+  }).pipe(Effect.catchTag("UserRepositoryError", databaseFailure));
 
 const getUser = ({ id }: typeof UserParams.Type) =>
   Effect.gen(function* () {
@@ -63,7 +65,7 @@ const createUser = Effect.gen(function* () {
 
 const UserHandlers = HttpApiBuilder.group(Api, "users", (handlers) =>
   handlers
-    .handle("list", () => listUsers)
+    .handle("list", ({ query }) => listUsers(query))
     .handle("get", ({ params }) => getUser(params))
     .handleRaw("create", () => createUser),
 ).pipe(Layer.provide(RequestValidationLive));
