@@ -12,3 +12,5 @@ dist
 .claude
 .zed
 .github
+.grype.yaml
+renovate.json5

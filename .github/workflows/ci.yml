@@ -36,8 +36,25 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 
+  # shellcheck on the shell scripts, actionlint and zizmor on the workflows:
+  # `pnpm check:static`, with the same images pinned by digest.
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Static checks
+        env:
+          # zizmor's online audits read public data from the GitHub API; the
+          # job token, read-only here, is enough.
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/check-static.sh
+
   # The production image (whose build runs `pnpm check` again) against a real
-  # PostgreSQL: migrations, API, health checks, and worker modes.
+  # PostgreSQL: migrations, API, health checks, and worker modes. Then a
+  # vulnerability scan of that image.
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -46,6 +63,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # The cache only speeds up this test build. A pull request reads main's
+      # entries but writes only its own, and the release's publish job, whose
+      # image is deployed, builds without it.
       - name: Build image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -59,6 +79,20 @@ jobs:
         env:
           APP_IMAGE: node-effect-template:ci
         run: bash scripts/smoke-docker.sh
+      # Fails on High and Critical vulnerabilities that have a fix, printing a
+      # table of every fixable one. .grype.yaml says how to accept a finding.
+      # scan.yml repeats this scan weekly: keep the two the same.
+      - name: Scan the image
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: docker:node-effect-template:ci
+          # renovate: datasource=github-releases depName=anchore/grype
+          grype-version: v0.121.0
+          config: .grype.yaml
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: true
+          output-format: table
 
   # Database adapter tests against PostgreSQL itself. Each test creates and
   # drops its own schema in this throwaway database, and the runtime role tests

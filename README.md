@@ -15,14 +15,16 @@ that lint cannot check.
 
 - **pnpm 12**, installed standalone (see
   [pnpm's installation guide](https://pnpm.io/installation)). The repository
-  pins `pnpm@12.15.0` in `packageManager` and `devEngines`, and pnpm switches to
-  that version by itself. A Corepack shim from an older Node also works through
-  `packageManager`; Node 26 itself ships without Corepack.
-- **No separate Node install.** `devEngines.runtime` pins Node `26.12.1`, and
-  `pnpm install` downloads it into `node_modules`. Every `pnpm run` and
+  pins pnpm's exact version in `packageManager` and `devEngines`, and pnpm
+  switches to that version by itself. A Corepack shim from an older Node also
+  works through `packageManager`; Node 26 itself ships without Corepack.
+- **No separate Node install.** `devEngines.runtime` pins Node's exact version,
+  and `pnpm install` downloads it into `node_modules`. Every `pnpm run` and
   `pnpm exec` uses that copy, whatever `node` your shell has.
-- **Docker** with Compose, for PostgreSQL and the container stack.
-- **Bash and curl**, for the Docker smoke test.
+- **Docker** with Compose, for PostgreSQL, the container stack, the static
+  checks and the image scan.
+- **Bash**, for the Docker smoke test, the static checks and the image scan,
+  with curl for the smoke test and Git for the static checks.
 
 ## Getting started
 
@@ -168,7 +170,9 @@ docker compose run --rm worker-once
 | `pnpm test`                           | Runs the unit tests                                                                                   |
 | `pnpm test:postgres`                  | Runs the tests that need PostgreSQL                                                                   |
 | `pnpm check`                          | Format check, lint, type check, migration drift check and unit tests: what CI and the image build run |
+| `pnpm check:static`                   | shellcheck, actionlint and zizmor from pinned Docker images: what CI's `static` job runs              |
 | `pnpm smoke:docker`                   | Smoke-tests a built image against a real PostgreSQL                                                   |
+| `pnpm scan:image [image]`             | Scans a built image with Grype as CI does; the default image is `node-effect-template:local`          |
 
 ## Toolchain
 
@@ -208,7 +212,7 @@ docker compose run --rm worker-once
   trailing commas, and Markdown prose wrapped at 80 columns. Import sorting is
   lint's job, in five groups: `node:` built-ins, packages, `@node-effect/*`,
   `../`, then `./`.
-- **Type checking** uses `tsc` from TypeScript `7.1.0-beta` with the single root
+- **Type checking** uses `tsc` from TypeScript 7 with the single root
   `tsconfig.json` (strict, `exactOptionalPropertyTypes`,
   `noUncheckedIndexedAccess`, and unused-code checks). Lint is not type-aware;
   `tsc` is the authoritative type check.
@@ -337,6 +341,10 @@ the one-shot worker and migrations:
 - The runtime stage installs production dependencies only and runs as the
   image's non-root `node` user. The build fails if the base image's Node version
   differs from `devEngines.runtime`.
+- The runtime stage deletes npm and npx, which nothing in it runs. npm's bundled
+  dependencies are where scanners find most of the base image's fixable
+  vulnerabilities. The base layers still hold the files, so the image is no
+  smaller.
 - `node` is PID 1 (`CMD ["node", "apps/api/src/main.ts"]`), so it receives stop
   signals directly. Never start a container through `pnpm`, which does not pass
   signals on to Node.
@@ -369,20 +377,65 @@ so run it only against a freshly migrated database, never production.
 
 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs on pull requests,
 cancelling superseded runs. On `main` it runs once per push, as the first stage
-of the Release workflow, which calls it as a reusable workflow. It has three
-jobs:
+of the Release workflow, which calls it as a reusable workflow, so every job
+below also gates releases. It has four jobs:
 
-| Job        | What it runs                                                        |
-| ---------- | ------------------------------------------------------------------- |
-| `check`    | `pnpm install --frozen-lockfile`, then `pnpm check`                 |
-| `smoke`    | Builds the image (which runs `pnpm check` again) and the smoke test |
-| `postgres` | `pnpm test:postgres` against a PostgreSQL service container         |
+| Job        | What it runs                                                                   |
+| ---------- | ------------------------------------------------------------------------------ |
+| `check`    | `pnpm install --frozen-lockfile`, then `pnpm check`                            |
+| `static`   | `pnpm check:static`: shellcheck, actionlint and zizmor                         |
+| `smoke`    | Builds the image (which runs `pnpm check` again), the smoke test, a Grype scan |
+| `postgres` | `pnpm test:postgres` against a PostgreSQL service container                    |
 
 Every action is pinned to a commit SHA. Protect `main` with a ruleset that
-requires the `check`, `smoke` and `postgres` checks; the
+requires the `check`, `static`, `smoke` and `postgres` checks; the
 [VPS guide](./deploy/vps/README.md#7-github) has the settings. If you delete
 `release.yml`, add `push: { branches: [main] }` to `ci.yml`'s triggers so `main`
 keeps its CI.
+
+### Static checks
+
+`pnpm check:static` runs [`scripts/check-static.sh`](./scripts/check-static.sh),
+the same script as CI's `static` job. Its three tools run from Docker images
+pinned by digest, so it needs Docker and is not part of `pnpm check`, which the
+image build also runs.
+
+- **shellcheck** checks every shell script: each tracked or new, unignored file
+  that ends in `.sh` or starts with a sh or bash shebang, and the Git hooks in
+  `.vite-hooks`, which a `# shellcheck shell=sh` directive marks.
+- **actionlint** checks the workflows, and the scripts in their `run:` steps
+  with the shellcheck in its image. It ignores one error, the `queue` key in
+  `release.yml` (see [Caveats](#caveats)).
+- **zizmor** audits the workflows for security problems. With `GH_TOKEN` set, it
+  also runs its online audits (impostor commits, known vulnerable actions), as
+  CI does with the job's read-only token; without it, only the offline audits
+  run. Fix a finding, or accept it with an inline
+  `# zizmor: ignore[<audit>] <reason>` comment and the full reason above it, as
+  `release.yml` does for its call of `ci.yml`.
+
+### Image scan
+
+After the smoke test, the `smoke` job scans the image with Grype through
+`anchore/scan-action`, which installs the Grype version that `grype-version`
+pins. The scan fails on High and Critical vulnerabilities that have a fix, and
+its log lists every fixable one. [`scan.yml`](./.github/workflows/scan.yml) runs
+the same scan every Monday, and on manual dispatch, on an image it builds from
+`main`, so a vulnerability published after the last merge does not wait for the
+next pull request. In a public repository GitHub disables a scheduled workflow
+after 60 days without activity; enable it again on the Actions tab.
+
+A newly published vulnerability can fail an unrelated pull request. Fix it
+first: update the dependency, or re-pin the `Dockerfile`'s base image to its
+tag's current digest. Accept a finding only when it cannot affect the image,
+with an `ignore` rule in [`.grype.yaml`](./.grype.yaml) that names the
+vulnerability, the package version and a dated reason; the file has an example.
+
+To reproduce the scan on a local build, run `pnpm scan:image` after
+`docker build -t node-effect-template:local .`, or pass another image's name.
+[`scripts/scan-image.sh`](./scripts/scan-image.sh) runs the Grype version that
+`grype-version` pins, from an image pinned by digest, with the same settings.
+Grype reads a saved copy of the image, not the Docker socket, and downloads the
+current vulnerability database on each run.
 
 ## Deployment
 
@@ -394,15 +447,16 @@ environment; local development and CI are the checks before production.
 Every push to `main` starts
 [the Release workflow](./.github/workflows/release.yml), which also runs on
 manual dispatch. It runs the whole CI first, including the PostgreSQL tests. Its
-`publish` job then builds and smoke-tests the image, labels it with the commit
-and pushes it to GitHub Container Registry tagged with the commit SHA. Its
-`deploy` job, the only one that holds the server's SSH key, sends the SHA and
-the pushed image's digest to the server, whose `bin/release` takes everything
-else from that image. The release script pulls the image by digest and checks
-its commit label, migrates once, restarts the API, worker and tunnel, and checks
-that the API is ready, the tunnel is connected and the worker and tunnel stay
-up. When a check fails, it restores the previous release on its own and fails.
-See [the VPS guide](./deploy/vps/README.md) for server setup, secrets, rollback,
+`publish` job then builds the image without the Actions build cache, which any
+job on `main` can write to, smoke-tests it, labels it with the commit and pushes
+it to GitHub Container Registry tagged with the commit SHA. Its `deploy` job,
+the only one that holds the server's SSH key, sends the SHA and the pushed
+image's digest to the server, whose `bin/release` takes everything else from
+that image. The release script pulls the image by digest and checks its commit
+label, migrates once, restarts the API, worker and tunnel, and checks that the
+API is ready, the tunnel is connected and the worker and tunnel stay up. When a
+check fails, it restores the previous release on its own and fails. See
+[the VPS guide](./deploy/vps/README.md) for server setup, secrets, rollback,
 backups, restore drills and monitoring.
 
 The `publish` and `deploy` jobs run only when the repository variable
@@ -419,39 +473,128 @@ use the pinned Node in `node_modules/.bin/node`; the API and worker load `.env`.
 
 ## Exact dependency policy
 
-- Node `26.12.1` (`devEngines.runtime`; the image uses
-  `node:26.12.1-trixie-slim` pinned by digest)
-- pnpm `12.15.0`
-- `effect@4.0.6`, `@effect/platform-node@4.0.6`, `@effect/sql-pg@4.0.6`,
-  `@effect/vitest@4.0.6`
-- `drizzle-orm@1.0.0-rc.5`, `drizzle-kit@1.0.0-rc.5`
-- `typescript@7.1.0-beta`, `@types/node@26.6.5`
-- `vite-plus@1.4.0`, `vitest@5.0.5`, `oxlint@1.89.0`, `@oxlint/plugins@1.89.0`,
-  `oxfmt@0.74.0`
-- `pg@8.23.1`, for Drizzle Kit only
-- `postgres:18.6-alpine`, pinned by digest
+Every version is exact; there are no ranges. Renovate keeps them current, so
+this README names no exact versions; read them where they are pinned:
 
-Every version is exact; there are no ranges. Dependencies shared by workspace
-packages are declared once in the `catalog` of `pnpm-workspace.yaml` and
+| File                                                     | Pins                                                                                                                        |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `package.json`                                           | Node (`devEngines.runtime`), pnpm (`packageManager`, `devEngines.packageManager`) and the root `devDependencies`            |
+| `pnpm-workspace.yaml`                                    | The `catalog` of dependencies the workspace packages share, such as Effect and Drizzle, and the Vite and Vitest `overrides` |
+| `Dockerfile`                                             | The Node base image by digest, the pnpm it installs, and the Dockerfile syntax image                                        |
+| `docker-compose.yml`, `deploy/vps/compose.yml`, `ci.yml` | PostgreSQL by digest, and in `deploy/vps/compose.yml` `cloudflared`                                                         |
+| `scripts/check-static.sh`, `scripts/scan-image.sh`       | The shellcheck, actionlint, zizmor and Grype images by digest                                                               |
+| `.github/workflows/*.yml`                                | Every action by commit SHA, and in `ci.yml` and `scan.yml` the Grype version (`grype-version`)                              |
+
+Dependencies shared by workspace packages are declared once in the `catalog` and
 referenced as `catalog:`; workspace packages depend on each other with
 `workspace:*`. The four Effect packages share one version, as do Drizzle ORM and
-Kit. GitHub Actions are pinned by commit SHA and container images by digest. The
-lockfile is committed, so indirect resolution is reproducible.
+Kit. The lockfile is committed, so indirect resolution is reproducible.
 
 pnpm 12 does not resolve a version published less than a day ago unless you name
-it exactly.
+it exactly. With `trustPolicy: no-downgrade` in `pnpm-workspace.yaml`, it also
+refuses a version published with weaker evidence than an earlier version of the
+same package, such as without the provenance or trusted publishing its earlier
+releases had, which is how a release from a stolen npm token looks. If you have
+checked such a version and trust it, list it in `trustPolicyExclude`.
+
+### Dependency updates
+
+[Renovate](https://docs.renovatebot.com/), configured in
+[`renovate.json5`](./renovate.json5), opens a pull request for every pin above,
+and for the lockfile once a week. Install the
+[Renovate GitHub App](https://github.com/apps/renovate) on the repository; this
+is a manual step for its owner, and it needs Issues turned on for the Dependency
+Dashboard. Because the configuration already exists, Renovate skips its
+onboarding pull request.
+
+- **Dependency Dashboard.** An issue that Renovate keeps current: every
+  dependency it found, the updates it is waiting for, and checkboxes that open
+  or rebase a pull request on demand.
+- **Three days.** Renovate proposes a release once it is three days old, so a
+  broken or hijacked release has time to be reported and pulled. Where it cannot
+  read a release date, it holds the update under "Pending Status Checks" on the
+  dashboard until you check the date and tick it: zizmor, because GHCR publishes
+  no dates, and `postgres` and `cloudflared`, whose Docker Hub tag lists are too
+  long to read without signing in
+  ([renovatebot/renovate#46925](https://github.com/renovatebot/renovate/issues/46925)).
+  Renovate offers that tick only when every update in a pull request is held,
+  and otherwise leaves the held one out, so each of these images has a group of
+  its own. A ticked update's pull request keeps a pending
+  `renovate/stability-days` status, which is not a required check.
+- **Images that follow a pin.** The `Dockerfile`'s `node` image and the Grype
+  image in `scripts/scan-image.sh` have no dates either, but repeat a dated
+  version: `devEngines.runtime`, which nodejs.org dates, and `grype-version`,
+  which its GitHub release dates. Their version updates wait for that pin's
+  three days, and the pull request opens only once it updates every place. Until
+  then the dashboard lists it under "Group Size Not Met"; a tick there opens it
+  early, failing the toolchain test until the rest arrives. A new digest of the
+  same `node` tag, a rebuilt base image, waits for a tick like `postgres`.
+- **What the three days do not cover:**
+  - **Actions.** An action's release date is its tag's or commit's, which
+    whoever pushes the tag sets, or its GitHub Release's when that is later.
+    Before merging an action update, check that the version has a GitHub Release
+    and when it was published; the pull request reminds you.
+  - **Moved action tags.** An update that keeps an action's version but moves it
+    to another commit means its tag was moved, as in a hijacked release, and
+    Renovate would date it by the original release. It waits under "Pending
+    Approval" on the dashboard instead, each in a pull request of its own;
+    approve it only once you have confirmed the maintainers moved the tag.
+  - **The weekly lockfile pull request.** pnpm re-resolves indirect dependencies
+    for it with its own minimum release age of one day (see above).
+  - **Security fixes.** With Dependabot alerts on, Renovate opens a pull request
+    for a vulnerable dependency's fix at once, without the wait.
+- **One pull request per group,** and nothing merges by itself; every pull
+  request runs CI.
+
+| Group              | What it updates                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Effect             | `effect` and `@effect/*` in the catalog                                                                            |
+| Drizzle            | `drizzle-orm` and `drizzle-kit`, without Drizzle's branch builds                                                   |
+| Vite+ toolchain    | `vite-plus`, `oxlint`, `oxfmt`, `@oxlint/plugins` and `vitest`, and the Vite and Vitest overrides, majors included |
+| TypeScript         | `typescript`, without its nightly builds                                                                           |
+| Node               | `devEngines.runtime` and the `Dockerfile`'s base image; the workflows read Node from `package.json`                |
+| pnpm               | `packageManager`, `devEngines.packageManager` and the `Dockerfile`'s `npm install --global pnpm@…`                 |
+| PostgreSQL         | Minor versions and digests in `ci.yml` and both Compose files                                                      |
+| cloudflared        | `deploy/vps/compose.yml`                                                                                           |
+| GitHub Actions     | Every action in the workflows, except moved tags                                                                   |
+| Static check tools | The shellcheck and actionlint images in `scripts/check-static.sh`                                                  |
+| zizmor             | The zizmor image in `scripts/check-static.sh`                                                                      |
+| Grype              | `grype-version` in `ci.yml` and `scan.yml`, and the image in `scripts/scan-image.sh`                               |
+
+Anything else, such as `@types/node`, `pg` or the Dockerfile syntax image, gets
+a pull request of its own. PostgreSQL major versions are left out: a new major
+needs a dump and restore of the production database, so plan it by hand (see the
+[VPS guide](./deploy/vps/README.md)).
+
+[`scripts/toolchain.test.ts`](./scripts/toolchain.test.ts), part of
+`pnpm check`, fails a pull request that updates only some places of a pin that
+appears in several: Node in `devEngines.runtime` and the `Dockerfile`; pnpm in
+`packageManager`, `devEngines.packageManager` and the `Dockerfile`; each Docker
+image in every file that names it; the scan in `ci.yml` and `scan.yml`, and its
+Grype version in `scripts/scan-image.sh`; and the oxlint, oxfmt,
+`@oxlint/plugins`, Vitest and Vite versions that the installed `vite-plus` pins.
+oxc and Vitest often release before Vite+ pins the release, so the Vite+ group
+can fail that test until Renovate adds the `vite-plus` release that pins them;
+wait for it.
+
+Renovate does not manage the image built from this repository
+(`node-effect-template:local` and the commit-tagged release images), the
+`ubuntu-latest` runners, the Grype vulnerability database (each scan downloads
+the current one), or the Debian packages inside the base images, which arrive
+with a new base image digest.
 
 ## Prerelease notes
 
-- **Drizzle `1.0.0-rc.5`** is a release candidate. Unlike rc.4, it works with
-  stable Effect 4 (`Schema.TaggedError`, `effect/sql`), so no patch is needed.
+- **Drizzle 1.0** is a release candidate. From rc.5 on it works with stable
+  Effect 4 (`Schema.TaggedError`, `effect/sql`), so no patch is needed.
   `migrate.ts` uses its Effect migrator, `drizzle-orm/effect-postgres/migrator`.
-- **TypeScript `7.1.0-beta`** is the Go-native compiler. Drizzle's declaration
-  files do not type-check under it, so `skipLibCheck` must stay on.
-- **Vite+ `1.4.0`** bundles Vitest. The `overrides` in `pnpm-workspace.yaml`
-  keep one Vite (`vite-plus-core`) and one Vitest, so `vp test` and
-  `@effect/vitest` share a runner. When upgrading Vite+, set them to the
-  versions `pnpm exec vp toolchain` reports.
+- **TypeScript 7**, the Go-native compiler, is pinned to a prerelease. Drizzle's
+  declaration files do not type-check under it, so `skipLibCheck` must stay on.
+- **Vite+** bundles Vitest. The `overrides` in `pnpm-workspace.yaml` keep one
+  Vite (`vite-plus-core`) and one Vitest, so `vp test` and `@effect/vitest`
+  share a runner. `scripts/toolchain.test.ts` fails when they, or the root
+  oxlint, oxfmt and `@oxlint/plugins`, differ from what the installed
+  `vite-plus` pins.
 - **`@effect/platform-node`** declares `redis` as a required peer, although only
   its Redis module uses it; `packageExtensions` marks it optional.
 
@@ -460,7 +603,7 @@ it exactly.
 - npm and npx refuse to run inside the repository (`EBADDEVENGINES`), because
   `devEngines` names pnpm. Use `pnpm exec` and `pnpm dlx`.
 - A bare `node` in your shell is whatever is on your `PATH`, not the pinned
-  `26.12.1`. Use `pnpm exec node` or a `pnpm` script.
+  version. Use `pnpm exec node` or a `pnpm` script.
 - Signalling a `pnpm` process does not stop the Node process it started. Ctrl+C
   in a terminal signals both; process managers and containers must run `node`
   directly.
@@ -469,5 +612,7 @@ it exactly.
 - A failed migration logs its safe diagnostics, such as the SQLSTATE code
   (`42P07`), but not PostgreSQL's message, which can contain stored values. Look
   up the code, or run the migration's SQL by hand against a local database.
-- `actionlint` 1.7.12 reports the `queue` key under `concurrency` in
-  `release.yml` as unknown. GitHub accepts it.
+- As of 1.7.12, `actionlint` reports the `queue` key under `concurrency` in
+  `release.yml` as unknown. GitHub accepts it, so `scripts/check-static.sh`
+  ignores that error; remove the ignore once actionlint knows the key, for
+  example when reviewing Renovate's update of it.

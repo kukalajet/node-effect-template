@@ -113,7 +113,7 @@ packages/
     src/users/test/
 
 drizzle/                          # generated migrations, committed
-scripts/                          # init, OpenAPI export, smoke checks
+scripts/                          # init, OpenAPI export, smoke, scan, static and toolchain checks
 deploy/vps/                       # production Compose project and scripts
 tools/oxlint/anti-slop/           # vendored lint rules
 ```

@@ -5,8 +5,9 @@
 # runs `pnpm check`, so the image cannot be built from code that fails
 # formatting, lint, type checking or unit tests.
 #
-# node:26.12.1-trixie-slim. Keep the version equal to devEngines.runtime in
-# package.json; the `workspace` stage fails the build when they differ.
+# The Node version equals devEngines.runtime in package.json, and the pnpm
+# version below equals packageManager: scripts/toolchain.test.ts fails `pnpm
+# check` when they differ, and the `workspace` stage checks Node again.
 ARG NODE_IMAGE=node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec
 
 FROM ${NODE_IMAGE} AS workspace
@@ -41,6 +42,12 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
     pnpm install --frozen-lockfile --prod --ignore-scripts --store-dir /pnpm/store
 
 FROM ${NODE_IMAGE} AS runtime
+# Nothing here runs npm or npx (Node 26 has no Corepack): the `node` user runs
+# `node` directly. Deleting them leaves less to exploit, and npm's bundled
+# dependencies are where scanners find most of the base image's fixable
+# vulnerabilities. The base layers still hold the files, so the image is no
+# smaller. `rm` without -f fails the build if the base image moves them.
+RUN rm -r /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 ENV NODE_ENV=production
 WORKDIR /app
 # Depending on the check stage keeps failing code out of the image.

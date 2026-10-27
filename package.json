@@ -24,7 +24,9 @@
     "test": "vp test run --project unit",
     "test:postgres": "vp test run --project postgres",
     "smoke:docker": "bash scripts/smoke-docker.sh",
-    "check": "vp check && tsc && node scripts/check-migrations.ts && vp test run --project unit"
+    "check": "vp check && tsc && node scripts/check-migrations.ts && vp test run --project unit",
+    "check:static": "bash scripts/check-static.sh",
+    "scan:image": "bash scripts/scan-image.sh"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

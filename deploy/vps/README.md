@@ -30,7 +30,7 @@ The image carries this directory as `/app/deploy/vps`. Each release installs
 | `api`         | `<APP_IMAGE_REPOSITORY>:<sha>@<digest>`             | `cloudflared`                          | None                   |
 | `worker`      | Same image, `node apps/worker/src/main.ts`          | Nothing inbound                        | None                   |
 | `migrate`     | Same image, `node packages/database/src/migrate.ts` | Nothing inbound; runs once per release | None                   |
-| `postgresql`  | `postgres:18.6-alpine`, pinned by digest            | Docker network; host `127.0.0.1:5432`  | `postgres_data` volume |
+| `postgresql`  | `postgres` Alpine image, pinned by digest           | Docker network; host `127.0.0.1:5432`  | `postgres_data` volume |
 
 Every service has a read-only root filesystem, drops all Linux capabilities and
 sets `no-new-privileges`. `api`, `worker` and `migrate` write only to a 16 MB
@@ -285,8 +285,8 @@ CI only.
 | `PRODUCTION_KNOWN_HOSTS` | Repository variable             | Output of `ssh-keyscan -t ed25519 <server>`, checked against the provider's console |
 
 Also protect `main` with a ruleset (**Settings → Rules → Rulesets**) that
-requires the `check`, `smoke` and `postgres` status checks, so changes reach
-`main` through pull requests that passed CI, and blocks force pushes. The
+requires the `check`, `static`, `smoke` and `postgres` status checks, so changes
+reach `main` through pull requests that passed CI, and blocks force pushes. The
 Release workflow runs the same CI again on the pushed commit and deploys only
 when it passes, so a commit that reaches `main` another way cannot skip it.
 
@@ -346,11 +346,12 @@ Do not run `scripts/smoke-api.ts` against production: it creates users.
 
 Every push to `main`, including a merge, starts
 [the Release workflow](../../.github/workflows/release.yml). It first runs the
-whole of [CI](../../.github/workflows/ci.yml): checks, the image smoke test and
-the PostgreSQL tests. Then its `publish` job builds the image (the build runs
-`pnpm check`), runs the Docker smoke test on it and pushes
-`ghcr.io/<owner>/<repository>:<sha>`, and its `deploy` job connects to the
-server as `deploy` and sends `<sha> <digest>`; the forced command runs
+whole of [CI](../../.github/workflows/ci.yml): checks, static checks of the
+scripts and workflows, the image smoke test and vulnerability scan, and the
+PostgreSQL tests. Then its `publish` job builds the image without the Actions
+build cache (the build runs `pnpm check`), runs the Docker smoke test on it and
+pushes `ghcr.io/<owner>/<repository>:<sha>`, and its `deploy` job connects to
+the server as `deploy` and sends `<sha> <digest>`; the forced command runs
 `bin/release`. Releases queue rather than cancel each other. Without staging,
 merging to `main` is the deploy decision.
 
@@ -482,7 +483,8 @@ applies the retention policy (7 daily, 4 weekly, 6 monthly), and pings
 ```bash
 set -a; . /etc/node-effect-template/restic.env; set +a
 restic restore latest --target /tmp/restore
-docker run -d --name restore-pg -e POSTGRES_PASSWORD=drill postgres:18.6-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+postgres_image=$(/opt/node-effect-template/bin/compose config --images postgresql)
+docker run -d --name restore-pg -e POSTGRES_PASSWORD=drill "$postgres_image"
 until docker exec restore-pg pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done
 docker cp /tmp/restore/var/backups/node-effect-template/database.dump restore-pg:/tmp/database.dump
 docker exec restore-pg pg_restore -U postgres --no-owner --no-privileges --create -d postgres /tmp/database.dump
@@ -560,13 +562,15 @@ full restore does, rather than copying them into the container.
 - **Host updates:** `unattended-upgrades` installs security patches. Once a
   month, take a provider snapshot, run `apt-get full-upgrade`, and reboot if
   required.
-- **Image updates:** PostgreSQL minor versions and `cloudflared` are tag and
-  digest changes in `compose.yml`; change PostgreSQL's in the restore drill too.
-  The release of that commit applies them; a PostgreSQL change restarts the
-  database briefly before `migrate` runs. A PostgreSQL major upgrade needs a
-  dump and restore; plan it separately. If PostgreSQL moves to a non-Alpine
-  image, change the `uid` and `gid` of its `/var/run/postgresql` tmpfs in both
-  Compose files: 70 is Alpine's `postgres` user, and Debian's is 999.
+- **Image updates:** Renovate proposes PostgreSQL minor versions and
+  `cloudflared` as tag and digest changes in `compose.yml` (see
+  [Dependency updates](../../README.md#dependency-updates)), and the restore
+  drill reads PostgreSQL's image from it. The release of that commit applies
+  them; a PostgreSQL change restarts the database briefly before `migrate` runs.
+  A PostgreSQL major upgrade needs a dump and restore, so Renovate leaves it
+  out; plan it separately. If PostgreSQL moves to a non-Alpine image, change the
+  `uid` and `gid` of its `/var/run/postgresql` tmpfs in both Compose files: 70
+  is Alpine's `postgres` user, and Debian's is 999.
 
 ## Pre-launch checklist
 
