@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Releases one commit's image, <APP_IMAGE_REPOSITORY>:<sha>: pulls it, takes
+# compose.yml and bin/ for this directory from it, runs migrations once, then
+# restarts the application. CI runs it through the deploy key's forced command,
+# which passes only the SHA; operators run `bin/release <commit-sha>` to roll
+# back or re-release. The image repository comes from .env, and standard input
+# is never read.
+set -euo pipefail
+
+if [[ $EUID -eq 0 ]]; then
+  exec runuser -u deploy -- "$0" "$@"
+fi
+exec < /dev/null
+
+sha=${SSH_ORIGINAL_COMMAND:-${1:-}}
+if [[ ! $sha =~ ^[0-9a-f]{40}$ ]]; then
+  echo "usage: release <40-character commit sha>" >&2
+  exit 2
+fi
+
+cd "$(dirname "$0")/.."
+exec 9> release.lock
+flock -n 9 || {
+  echo "Another release is running" >&2
+  exit 1
+}
+
+repository=$(sed -n 's/^APP_IMAGE_REPOSITORY=//p' .env | tail -n 1)
+if [[ ! $repository =~ ^[a-z0-9][a-z0-9._/:-]*$ ]]; then
+  echo "Set APP_IMAGE_REPOSITORY in .env, lowercase and unquoted" >&2
+  exit 1
+fi
+# Compose prefers the environment to env files, so every command below uses
+# exactly the image this script pulls.
+export APP_IMAGE_REPOSITORY=$repository APP_IMAGE_TAG=$sha
+image=$repository:$sha
+
+staging=$(mktemp -d .release.XXXXXX)
+container=
+cleanup() {
+  if [[ -n $container ]]; then
+    docker rm "$container" > /dev/null || true
+  fi
+  rm -rf "$staging"
+}
+trap cleanup EXIT
+
+docker pull --quiet "$image" > /dev/null
+container=$(docker create "$image")
+docker cp --quiet "$container:/app/deploy/vps/compose.yml" "$staging/compose.yml"
+docker cp --quiet "$container:/app/deploy/vps/bin" "$staging/bin"
+docker rm "$container" > /dev/null
+container=
+if [[ ! -x $staging/bin/release || ! -x $staging/bin/compose ]]; then
+  echo "$image has no deploy/vps/bin/release or bin/compose" >&2
+  exit 1
+fi
+
+# The release's own compose.yml, with this directory's .env, until its
+# migration has succeeded.
+staged() {
+  docker compose -f "$staging/compose.yml" --project-directory . --env-file .env "$@"
+}
+staged config --quiet
+staged pull --quiet
+staged --profile release run --rm -T migrate
+
+# Only now take the release's files, so a failed release leaves the previous
+# ones in place, and a rollback restores the older release's files. Renaming
+# leaves the file this script runs from untouched.
+mv -f "$staging/compose.yml" compose.yml
+for file in bin/*; do
+  if [[ ! -e $staging/$file ]]; then
+    rm -f "$file"
+  fi
+done
+mv -f "$staging"/bin/* bin/
+printf 'APP_IMAGE_TAG=%s\n' "$sha" > release.env.next
+mv -f release.env.next release.env
+
+bin/compose up -d --wait --wait-timeout 180 api worker cloudflared
+
+# `up --wait` accepts a service without a healthcheck once its container has
+# started, even one that exits at once and restarts in a loop. The worker and
+# the tunnel must stay running, without another restart, for a while longer.
+state() {
+  docker inspect --format '{{.State.Status}} {{.RestartCount}}' \
+    "$(bin/compose ps --all -q "$1")"
+}
+declare -A before
+for service in worker cloudflared; do
+  before[$service]=$(state "$service")
+done
+sleep 15
+for service in worker cloudflared; do
+  after=$(state "$service")
+  if [[ ${before[$service]} != running* || $after != "${before[$service]}" ]]; then
+    echo "$service is not running steadily (status and restarts: ${before[$service]}, then $after)" >&2
+    exit 1
+  fi
+done
+
+digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
+echo "$(date -u +%FT%TZ) $sha $digest" >> releases.log
+
+# Keep the three newest images for rollback.
+docker image ls "$repository" --format '{{.CreatedAt}}|{{.Repository}}:{{.Tag}}' \
+  | sort -r | tail -n +4 | cut -d '|' -f 2 \
+  | xargs -r docker image rm > /dev/null 2>&1 || true
+echo "Released $sha"

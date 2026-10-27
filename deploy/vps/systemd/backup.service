@@ -1,0 +1,14 @@
+[Unit]
+Description=Back up the node-effect-template PostgreSQL database
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/node-effect-template/restic.env
+# The service has no HOME, so restic needs its cache directory named; without a
+# cache, every run downloads the repository index again.
+CacheDirectory=node-effect-template-restic
+CacheDirectoryMode=0700
+Environment=RESTIC_CACHE_DIR=/var/cache/node-effect-template-restic
+ExecStart=/opt/node-effect-template/bin/backup

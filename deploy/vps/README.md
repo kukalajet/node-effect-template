@@ -1,0 +1,423 @@
+# VPS production deployment
+
+Production runs on one x86-64 Linux VPS, from any provider, as the Docker
+Compose project in this directory. Cloudflare Tunnel is the only public ingress:
+the host accepts no inbound connections except key-only SSH, and PostgreSQL is
+never reachable from the internet. On every push to `main`, GitHub Actions runs
+the full CI, builds and smoke-tests the image, publishes it to GitHub Container
+Registry (GHCR) tagged with the commit SHA, and sends that SHA to `bin/release`
+on the server over SSH. Nightly encrypted backups go to S3-compatible storage
+with restic. There is one environment; local development and CI are the checks
+before production.
+
+| Path                                                                     | Purpose                                                              |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| [`compose.yml`](compose.yml)                                             | Production services: PostgreSQL, migrate, API, worker, `cloudflared` |
+| [`bin/`](bin/)                                                           | `compose`, `release`, and `backup` scripts                           |
+| [`systemd/`](systemd/)                                                   | Nightly backup service and timer                                     |
+| [`env.example`](env.example), [`restic.env.example`](restic.env.example) | Templates for the server's secrets files                             |
+
+The image carries this directory as `/app/deploy/vps`. Each release installs
+`compose.yml` and `bin/` on the server from the image it releases.
+
+## What runs
+
+| Service       | Image                                               | Reachable from                         | Data                   |
+| ------------- | --------------------------------------------------- | -------------------------------------- | ---------------------- |
+| `cloudflared` | `cloudflare/cloudflared`, pinned by digest          | Outbound only                          | None                   |
+| `api`         | `<APP_IMAGE_REPOSITORY>:<sha>`                      | `cloudflared`                          | None                   |
+| `worker`      | Same image, `node apps/worker/src/main.ts`          | Nothing inbound                        | None                   |
+| `migrate`     | Same image, `node packages/database/src/migrate.ts` | Nothing inbound; runs once per release | None                   |
+| `postgresql`  | `postgres:18.6-alpine`, pinned by digest            | Docker network; host `127.0.0.1:5432`  | `postgres_data` volume |
+
+`compose.yml` differs from the local `docker-compose.yml`:
+
+- It pulls images from GHCR and never builds on the host. Until the first
+  release, the app image tag is a placeholder that fails if started.
+- `migrate` runs only when `bin/release` invokes it, under the `release`
+  profile.
+- Every long-running service (`postgresql`, `api`, `worker`, `cloudflared`)
+  restarts unless stopped and has a memory ceiling. The worker exits on any
+  failure and relies on that restart policy. Every service, `migrate` included,
+  rotates its logs with Docker's `local` driver.
+- It adds `cloudflared`.
+
+On the server the files are laid out as:
+
+```text
+/opt/node-effect-template/   owned by deploy
+  compose.yml                deploy/vps/compose.yml from the current release's image
+  bin/compose                Docker Compose with .env and release.env loaded
+  bin/release                release script
+  bin/backup                 backup script
+  .env                       secrets, from env.example, mode 0600
+  release.env                APP_IMAGE_TAG of the current release, written by bin/release
+  releases.log               one line per release: time, commit, image digest
+/etc/node-effect-template/restic.env   backup credentials, mode 0600, owned by root
+```
+
+`bin/` holds exactly the scripts of the current release's image, like
+`compose.yml`.
+
+## Setup
+
+The commands assume Ubuntu 24.04 LTS or Debian 13, run as root on the server
+unless they show `ssh` or `scp` from the repository root on your machine.
+
+### 1. Prerequisites
+
+- A domain whose DNS zone is on Cloudflare (the Free plan is enough).
+- Two-factor authentication on the VPS provider, Cloudflare, registrar, and
+  GitHub accounts.
+- An Ed25519 SSH key for each operator, plus a separate one used only by GitHub
+  Actions for releases.
+- A password manager vault for production. It holds the master copy of every
+  secret created below.
+- An S3-compatible bucket for backups, with a different provider than the
+  server.
+
+### 2. Server and provider firewall
+
+A VPS with 2 vCPUs and 4 GB of RAM is plenty to start. Take a provider snapshot
+before risky host maintenance.
+
+Choose an x86-64 (amd64) plan, not an Arm one such as Hetzner CAX, Oracle Ampere
+or AWS Graviton: the Release workflow builds `linux/amd64` only, and on an arm64
+host `bin/release` stops at the pull with no matching image. An arm64 image
+would have to run the image build's `pnpm check` under emulation on every
+release, and CI smoke-tests only amd64. To run on Arm, build on an arm64 runner
+and smoke-test that image too.
+
+If the provider has a network firewall, allow only inbound TCP 22 (IPv4 and
+IPv6). It filters traffic before it reaches the host, which also covers ports
+Docker publishes: Docker's own rules bypass `ufw`. The tunnel connects outbound,
+so the application needs no inbound rule.
+
+### 3. Host baseline
+
+```bash
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get -y full-upgrade
+apt-get -y install ufw restic unattended-upgrades curl
+dpkg-reconfigure -f noninteractive unattended-upgrades
+
+# Release account. Its only SSH key is the CI deploy key from step 7.
+adduser --disabled-password --gecos "" deploy
+
+# Keys only. This file sorts before cloud-init's 50-cloud-init.conf, so its
+# values take precedence.
+cat > /etc/ssh/sshd_config.d/10-hardening.conf <<'EOF'
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+EOF
+sshd -t && systemctl reload ssh
+
+# Host firewall as a second layer.
+ufw default deny incoming && ufw default allow outgoing
+ufw allow OpenSSH && ufw --force enable
+
+# 2 GB of swap as a buffer against memory spikes.
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
+
+Before closing the session that changed SSH, confirm from a second terminal that
+a key login works and a password login is refused. Reboot if
+`/var/run/reboot-required` exists.
+
+### 4. Docker
+
+Install Docker Engine and the Compose plugin from
+[Docker's apt repository](https://docs.docker.com/engine/install/), not the
+distribution's `docker.io` package. Then:
+
+```bash
+docker compose version
+usermod -aG docker deploy
+```
+
+Membership in the `docker` group is equivalent to root: anyone who can run
+commands as `deploy` controls the host. Only `deploy` gets it, and its only SSH
+key runs `bin/release` with nothing but a commit SHA (step 7). `compose.yml`
+rotates each service's logs itself, so `/etc/docker/daemon.json` needs no
+changes. It publishes only PostgreSQL, on loopback; keep it that way, because
+published ports bypass `ufw`.
+
+### 5. Cloudflare Tunnel and DNS
+
+1. In Cloudflare Zero Trust, create a remotely managed tunnel, for example
+   `node-effect-template-production`, and copy the token from its install
+   command into the vault. Do not run the install command: the `cloudflared`
+   service is the connector.
+2. Add a public hostname, for example `api.example.com`, with service type
+   `HTTP` and URL `api:8000`. `cloudflared` resolves `api` on the Compose
+   network.
+3. In the zone, turn on **Always Use HTTPS** and add a Cache Rule that bypasses
+   the cache for the API hostname.
+
+If the API is not meant to be public, put the hostname, or at least `/docs` and
+`/openapi.json`, behind Cloudflare Access.
+
+### 6. Files and secrets on the host
+
+```bash
+ssh root@<server> 'install -d -m 750 -o deploy -g deploy /opt/node-effect-template /opt/node-effect-template/bin'
+scp deploy/vps/compose.yml root@<server>:/opt/node-effect-template/
+scp deploy/vps/bin/* root@<server>:/opt/node-effect-template/bin/
+scp deploy/vps/env.example root@<server>:/opt/node-effect-template/.env
+ssh root@<server> 'chown -R deploy:deploy /opt/node-effect-template && chmod 755 /opt/node-effect-template/bin/* && chmod 600 /opt/node-effect-template/.env'
+```
+
+These copies only bootstrap the first release. From then on, every release
+installs `compose.yml` and `bin/` from the image it releases, after its
+migration has succeeded, so the server always runs the files that match its
+image.
+
+Fill in `/opt/node-effect-template/.env` following its comments, and keep every
+value in the vault:
+
+- `APP_IMAGE_REPOSITORY`: `ghcr.io/<owner>/<repository>` in lowercase, as the
+  Release workflow names the image.
+- `POSTGRES_PASSWORD`: generate it with `openssl rand -hex 32`. Characters such
+  as `/` or `+` would break the database URL.
+- `CLOUDFLARE_TUNNEL_TOKEN`: from step 5.
+
+Run every Compose command through `bin/compose`, which loads both `.env` and
+`release.env`.
+
+### 7. GitHub
+
+The Release workflow's `release` job runs in the `production` environment, only
+on `main`, and only once the repository variable `PRODUCTION_HOST` is set. Until
+then, pushes to `main` run CI only.
+
+1. Under **Settings → Environments**, create `production`. Under **Deployment
+   branches and tags**, choose **Selected branches and tags** and allow only
+   `main`. Add required reviewers if a merge alone should not deploy.
+2. Add `PRODUCTION_SSH_KEY` as a secret of the `production` environment, never
+   as a repository secret: a workflow on any branch can read repository secrets,
+   while this environment's secrets reach only jobs from `main`.
+3. Under **Settings → Secrets and variables → Actions → Variables**, add the two
+   repository variables. `PRODUCTION_HOST` cannot be an environment variable,
+   because the job checks it before it enters the environment.
+
+| Name                     | Where                           | Value                                                                               |
+| ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------- |
+| `PRODUCTION_SSH_KEY`     | `production` environment secret | Private half of a new Ed25519 key used only for releases                            |
+| `PRODUCTION_HOST`        | Repository variable             | The server's IP address or hostname                                                 |
+| `PRODUCTION_KNOWN_HOSTS` | Repository variable             | Output of `ssh-keyscan -t ed25519 <server>`, checked against the provider's console |
+
+Also protect `main` with a ruleset (**Settings → Rules → Rulesets**) that
+requires the `check`, `smoke` and `postgres` status checks, so changes reach
+`main` through pull requests that passed CI, and blocks force pushes. The
+Release workflow runs the same CI again on the pushed commit and deploys only
+when it passes, so a commit that reaches `main` another way cannot skip it.
+
+Install the key's public half for `deploy`, with `bin/release` as its forced
+command:
+
+```bash
+install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+echo 'restrict,command="/opt/node-effect-template/bin/release" ssh-ed25519 AAAA... github-actions-release' \
+  > /home/deploy/.ssh/authorized_keys
+chown deploy:deploy /home/deploy/.ssh/authorized_keys && chmod 600 /home/deploy/.ssh/authorized_keys
+```
+
+`restrict` turns off port, agent and X11 forwarding, terminals and `~/.ssh/rc`.
+Whatever the client asks to run, sshd runs `bin/release` instead and passes the
+request in `SSH_ORIGINAL_COMMAND`. `bin/release` accepts only a 40-character
+lowercase hexadecimal SHA there and never reads standard input. It takes the
+image repository from `.env`, and `compose.yml` and `bin/` from the image it
+pulls, so the key cannot send files, pick another image repository or run any
+other command.
+
+What the key can still do is release any tag that exists in
+`APP_IMAGE_REPOSITORY`, including an older one, and a release runs that image's
+`compose.yml`, `bin/` and migrations on the host. Normally the tags are the
+commits the Release workflow built. GHCR, however, accepts pushes from any
+workflow in this repository that asks for `packages: write`, on any branch, so
+anyone with write access to the repository can replace a tag's image, and a
+later release of that tag, such as a rollback, gives them root on the host.
+Before rolling back by hand, `docker pull` the tag and check that its digest
+matches the one `releases.log` recorded for that commit.
+
+GHCR packages are private by default. Give `deploy` read access with a classic
+personal access token that has only `read:packages` (GHCR does not accept
+fine-grained tokens); keep it in the vault, run
+`runuser -u deploy -- docker login ghcr.io -u <github-user>`, and paste it at
+the prompt.
+
+### 8. First start
+
+1. Start the database: `/opt/node-effect-template/bin/compose up -d postgresql`.
+2. Run the first release: with `PRODUCTION_HOST` set, push to `main`, or open
+   **Actions → Release → Run workflow** on `main`.
+3. Verify through the tunnel:
+
+   ```bash
+   curl -fsS https://api.example.com/health/live
+   curl -fsS https://api.example.com/health/ready
+   ```
+
+Do not run `scripts/smoke-api.ts` against production: it creates users.
+
+## Releases and rollback
+
+Every push to `main`, including a merge, starts
+[the Release workflow](../../.github/workflows/release.yml). It first runs the
+whole of [CI](../../.github/workflows/ci.yml): checks, the image smoke test and
+the PostgreSQL tests. Then it builds the image (the build runs `pnpm check`),
+runs the Docker smoke test on it, pushes `ghcr.io/<owner>/<repository>:<sha>`,
+and connects to the server as `deploy`, sending only the SHA; the forced command
+runs `bin/release`. Releases queue rather than cancel each other. Without
+staging, merging to `main` is the deploy decision.
+
+[`bin/release`](bin/release) runs as `deploy`; started as root, it switches to
+`deploy` itself. It:
+
+1. Takes a lock, pulls `<APP_IMAGE_REPOSITORY>:<sha>`, and copies `compose.yml`
+   and `bin/` out of the image into a staging directory.
+2. With the staged `compose.yml` and the server's `.env`, validates the
+   configuration, pulls the images and runs `migrate` once. Compose recreates
+   any service whose definition changed, PostgreSQL included, while the previous
+   release keeps serving. If any of this fails, the release stops and
+   `compose.yml`, `bin/`, `release.env` and the running containers stay as they
+   were.
+3. Installs the staged `compose.yml` and `bin/`, records the tag in
+   `release.env`, and runs `bin/compose up -d --wait` for the API, worker and
+   tunnel.
+4. Waits 15 seconds and fails unless the worker and `cloudflared` are still
+   running without another restart. `up --wait` alone cannot tell: it accepts a
+   container without a healthcheck once it has started, even one that exits at
+   once and restarts in a loop. A release that fails here is installed but
+   unhealthy; roll back.
+5. Appends the commit and image digest to `releases.log`, and keeps the three
+   newest images.
+
+The single API replica is unavailable for a few seconds while it restarts, and
+the tunnel returns an error page meanwhile.
+
+Migrations never run at application startup. They must work with the previous
+release still running, because it serves traffic while `migrate` runs and a
+rollback does not undo them: add columns and tables first, and remove old ones
+in a later release.
+
+**Rollback.** Run `/opt/node-effect-template/bin/release <previous-sha>` on the
+server, or re-run that commit's Release workflow run in GitHub Actions. Either
+way the previous release's `compose.yml` and `bin/` come back with its image.
+Fix forward when the previous code cannot work with the newer schema.
+
+## Backups and restore
+
+1. Create an access key limited to the backup bucket, with read and write
+   access.
+2. Install the credentials file, then fill it in following its comments:
+
+   ```bash
+   ssh root@<server> 'install -d -m 700 /etc/node-effect-template'
+   scp deploy/vps/restic.env.example root@<server>:/etc/node-effect-template/restic.env
+   ssh root@<server> 'chmod 600 /etc/node-effect-template/restic.env'
+   ```
+
+3. Initialize the repository once:
+   `set -a; . /etc/node-effect-template/restic.env; set +a; restic init`.
+4. Install and start the nightly timer:
+
+   ```bash
+   scp deploy/vps/systemd/backup.service root@<server>:/etc/systemd/system/node-effect-template-backup.service
+   scp deploy/vps/systemd/backup.timer root@<server>:/etc/systemd/system/node-effect-template-backup.timer
+   ssh root@<server> 'systemctl daemon-reload && systemctl enable --now node-effect-template-backup.timer'
+   ```
+
+5. Run it once and read the result:
+   `systemctl start node-effect-template-backup.service && journalctl -u node-effect-template-backup -n 30`.
+
+[`bin/backup`](bin/backup) writes a `pg_dump -Fc` of the database to
+`/var/backups/node-effect-template/database.dump`, uploads it with restic,
+applies the retention policy (7 daily, 4 weekly, 6 monthly), and pings
+`HEARTBEAT_URL` when it is set. The service keeps restic's cache in
+`/var/cache/node-effect-template-restic`, so a run downloads only what changed.
+
+**Restore drill.** Run it before launch, then monthly:
+
+```bash
+set -a; . /etc/node-effect-template/restic.env; set +a
+restic restore latest --target /tmp/restore
+docker run -d --name restore-pg -e POSTGRES_PASSWORD=drill postgres:18.6-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+until docker exec restore-pg pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done
+docker cp /tmp/restore/var/backups/node-effect-template/database.dump restore-pg:/tmp/database.dump
+docker exec restore-pg pg_restore -U postgres --no-owner --create -d postgres /tmp/database.dump
+docker exec restore-pg psql -U postgres -d node_effect -c 'select count(*) from users'
+docker rm -f restore-pg && rm -rf /tmp/restore
+```
+
+A full restore follows the same path on a new server: repeat setup steps 2–7,
+start PostgreSQL with `bin/compose up -d postgresql`, load the dump with
+`bin/compose exec -T postgresql sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner' < database.dump`,
+then release the last commit.
+
+## Monitoring
+
+- **Uptime:** an external HTTP check on `/health/ready` through the tunnel every
+  minute, alerting by email or phone.
+- **Host:** an agent such as Grafana Alloy shipping host metrics and container
+  logs. Alert on disk above 80%, memory above 90%, and container restart loops.
+- **Backups:** a dead man's switch, such as Healthchecks.io, pinged through
+  `HEARTBEAT_URL`. It alerts when no successful backup arrives within 26 hours.
+
+## Day-to-day operations
+
+```bash
+ssh root@<server>
+sudo -iu deploy
+cd /opt/node-effect-template
+
+bin/compose ps
+bin/compose logs -f --since 10m api worker
+bin/compose restart worker
+bin/compose exec postgresql sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"'
+tail releases.log
+```
+
+- **Database tools:** from your machine, open a tunnel with
+  `ssh -N -L 5432:127.0.0.1:5432 root@<server>`.
+- **Change `POSTGRES_PASSWORD`:** PostgreSQL reads `POSTGRES_PASSWORD` only when
+  it creates an empty data directory, so change the role's password first.
+  Generate the new one with `openssl rand -hex 32` and store it in the vault.
+  Open `psql` as in the block above, run `\password` (it changes the connected
+  role's password) and paste it. Then put it in `.env` and run
+  `bin/compose up -d --wait api worker`, which recreates PostgreSQL, the API and
+  the worker with the new value. New database connections fail between the two
+  steps, so do them together.
+- **Change `CLOUDFLARE_TUNNEL_TOKEN`:** put the new token in the vault and in
+  `.env`, run `bin/compose up -d --wait cloudflared`, check `/health/ready`
+  through the tunnel, then revoke the old token at Cloudflare. Restarting the
+  API or worker does not apply it, because only `cloudflared` uses it.
+- **Host updates:** `unattended-upgrades` installs security patches. Once a
+  month, take a provider snapshot, run `apt-get full-upgrade`, and reboot if
+  required.
+- **Image updates:** PostgreSQL minor versions and `cloudflared` are tag and
+  digest changes in `compose.yml`; change PostgreSQL's in the restore drill too.
+  The release of that commit applies them; a PostgreSQL change restarts the
+  database briefly before `migrate` runs. A PostgreSQL major upgrade needs a
+  dump and restore; plan it separately.
+
+## Pre-launch checklist
+
+Keep production private until every item passes.
+
+- [ ] `/health/live` and `/health/ready` pass through the tunnel hostname.
+- [ ] Stopping PostgreSQL briefly turns `/health/ready` into 503 while
+      `/health/live` stays 200, and the worker restarts and recovers once the
+      database is back.
+- [ ] After `reboot`, every service and the tunnel return without manual action.
+- [ ] A release with a migration, then a rollback to the previous commit.
+- [ ] The backup and restore drill passes.
+- [ ] From outside, only port 22 answers (`nmap -Pn <server>`); PostgreSQL is
+      unreachable.
+- [ ] Memory and CPU under representative load fit the server. Adjust
+      `mem_limit` or resize if not.
+- [ ] Alerts fire: stop `api` and expect the uptime alert; skip a backup and
+      expect the heartbeat alert.

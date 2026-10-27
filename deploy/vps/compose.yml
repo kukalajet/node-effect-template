@@ -1,0 +1,111 @@
+# Production Compose project, installed as /opt/node-effect-template/compose.yml.
+# Every image carries this file and bin/ under /app/deploy/vps; bin/release
+# installs them from the image it releases once its migration has succeeded.
+# See README.md.
+name: node-effect-template
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 20m
+    max-file: "5"
+
+x-app: &app
+  # bin/release writes APP_IMAGE_TAG to release.env; until the first release the
+  # placeholder tag fails loudly.
+  image: ${APP_IMAGE_REPOSITORY:?Set it in .env}:${APP_IMAGE_TAG:-unreleased}
+  restart: unless-stopped
+  logging: *logging
+  # A service that needs more variables merges this map:
+  # `environment: { <<: *app-environment, EXTRA: value }`.
+  environment: &app-environment
+    DATABASE_URL:
+      postgresql://${POSTGRES_USER:-node_effect}:${POSTGRES_PASSWORD:?Set
+      POSTGRES_PASSWORD in .env}@postgresql:5432/${POSTGRES_DB:-node_effect}
+    API_HOST: 0.0.0.0
+    API_PORT: "8000"
+    WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-5000}
+
+# Memory limits are ceilings, not reservations, so one runaway process cannot
+# take the database down with it. Size them to the host.
+services:
+  postgresql:
+    image: postgres:18.6-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-node_effect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_USER: ${POSTGRES_USER:-node_effect}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    ports:
+      - "127.0.0.1:5432:5432" # maintenance over an SSH tunnel only
+    mem_limit: 2g
+    healthcheck:
+      # Over TCP: during first-boot initialization PostgreSQL listens on its
+      # Unix socket only, so a socket check would pass before migrate can
+      # connect.
+      test:
+        - CMD-SHELL
+        - pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  # Runs once per release, before the application restarts.
+  migrate:
+    <<: *app
+    command: ["node", "packages/database/src/migrate.ts"]
+    restart: "no"
+    profiles: ["release"]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    stop_grace_period: 15s
+    mem_limit: 1g
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    # Liveness only: a database outage must not restart the API.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8000/health/live').then((response) =>
+          process.exit(response.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  # Exits on any failure; `restart: unless-stopped` from x-app restarts it.
+  worker:
+    <<: *app
+    command: ["node", "apps/worker/src/main.ts"]
+    stop_grace_period: 15s
+    mem_limit: 1g
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
+  # The only public ingress: an outbound Cloudflare Tunnel whose public hostname
+  # points at http://api:8000.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.4@sha256:c6c7ae1d5dfdcb094ad344ed68ccffc26635c9c6be80965664c33baf064b0515
+    command: ["tunnel", "--no-autoupdate", "run"]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set it in .env}
+    mem_limit: 256m
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

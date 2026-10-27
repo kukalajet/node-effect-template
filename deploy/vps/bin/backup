@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Backs up PostgreSQL to the restic repository configured in
+# /etc/node-effect-template/restic.env. Runs as root from the backup service.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+out=/var/backups/node-effect-template
+install -d -m 700 "$out"
+
+# shellcheck disable=SC2016 # expanded inside the container
+bin/compose exec -T postgresql sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' \
+  > "$out/database.dump.partial"
+mv -f "$out/database.dump.partial" "$out/database.dump"
+
+restic backup --tag nightly "$out"
+restic forget --tag nightly --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
+if [[ -n ${HEARTBEAT_URL:-} ]]; then
+  curl -fsS -m 10 --retry 3 "$HEARTBEAT_URL" > /dev/null
+fi

@@ -1,0 +1,81 @@
+name: Release
+
+# Production release on every push to main, with manual dispatch available: the
+# full CI first, then the image, then bin/release on the server. See
+# deploy/vps/README.md for the server side.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+# Releases queue in order; none is cancelled halfway.
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  # Checks, the image smoke test and the PostgreSQL tests gate every release.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  release:
+    needs: ci
+    # PRODUCTION_HOST must be a repository variable: this condition is evaluated
+    # before the job enters its environment. Until it is set, pushes to main run
+    # CI only.
+    if: github.ref == 'refs/heads/main' && vars.PRODUCTION_HOST != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Image names must be lowercase; the server's APP_IMAGE_REPOSITORY must
+      # match this repository.
+      - name: Name the image
+        run: |
+          echo "APP_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # x86-64 only; deploy/vps/README.md explains why.
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: ${{ env.APP_IMAGE }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+      - name: Smoke-test the image
+        run: bash scripts/smoke-docker.sh
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish image
+        run: docker push "$APP_IMAGE"
+      # The deploy key's forced command is bin/release, which receives only this
+      # SHA and takes everything else from the image and the server's .env.
+      - name: Release on the server
+        env:
+          SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.PRODUCTION_KNOWN_HOSTS }}
+          HOST: ${{ vars.PRODUCTION_HOST }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/release
+          chmod 600 ~/.ssh/release
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -n -i ~/.ssh/release -o IdentitiesOnly=yes -o BatchMode=yes \
+            "deploy@$HOST" "$GITHUB_SHA"
