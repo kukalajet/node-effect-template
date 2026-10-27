@@ -4,3 +4,5 @@ node_modules/
 coverage/
 dist/
 .vite-hooks/_/
+.claude/settings.local.json
+.claude/worktrees/

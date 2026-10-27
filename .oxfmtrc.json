@@ -11,7 +11,8 @@
   "ignorePatterns": [
     "drizzle/**",
     "tools/oxlint/anti-slop/**",
-    "pnpm-lock.yaml"
+    "pnpm-lock.yaml",
+    ".claude/**"
   ],
   "overrides": [
     {
