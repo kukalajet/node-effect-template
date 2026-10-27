@@ -35,6 +35,7 @@ const config = defineConfig({
         test: {
           name: "postgres",
           include: ["apps/**/*.postgres.ts", "packages/**/*.postgres.ts"],
+          setupFiles: ["packages/database/src/test/postgres.setup.ts"],
           fileParallelism: false,
         },
       },
