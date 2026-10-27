@@ -1,6 +1,7 @@
 import { eslintCompatPlugin } from "@oxlint/plugins";
 
 import { blankLineAroundBlocksRule } from "./rules/blank-line-around-blocks.ts";
+import { blankLineAroundMultilineStatementsRule } from "./rules/blank-line-around-multiline-statements.ts";
 import { blankLineBeforeReturnRule } from "./rules/blank-line-before-return.ts";
 import { importOrderRule } from "./rules/import-order.ts";
 import { maxLoopSkipsRule } from "./rules/max-loop-skips.ts";
@@ -17,6 +18,8 @@ export default eslintCompatPlugin({
   meta: { name: "anti-slop" },
   rules: {
     "blank-line-around-blocks": blankLineAroundBlocksRule,
+    "blank-line-around-multiline-statements":
+      blankLineAroundMultilineStatementsRule,
     "blank-line-before-return": blankLineBeforeReturnRule,
     "import-order": importOrderRule,
     "max-loop-skips": maxLoopSkipsRule,

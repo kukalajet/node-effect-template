@@ -154,11 +154,13 @@ docker compose run --rm worker-once
   and `oxfmt` binaries apply the same rules. It also defines the `unit` and
   `postgres` test projects and the pre-commit `staged` command.
 - **Lint** turns on oxlint's correctness category plus explicit rules, and the
-  anti-slop rules vendored in `tools/oxlint/anti-slop` (do not edit them). They
-  enforce import order, a trailing export list, a `SAFETY:` comment before every
-  type assertion, blank lines before `return` and around multi-line blocks, no
-  nested ternaries, and no module mocking, among others.
-  [READABILITY.md](./READABILITY.md) says which of its rules lint enforces.
+  anti-slop rules in `tools/oxlint/anti-slop`: vendored from Ekze, plus
+  `blank-line-around-multiline-statements` added here. Don't edit them to make
+  code pass. They enforce import order, a trailing export list, a `SAFETY:`
+  comment before every type assertion, blank lines before `return` and around
+  multi-line blocks and statements, no nested ternaries, and no module mocking,
+  among others. [READABILITY.md](./READABILITY.md) says which of its rules lint
+  enforces.
 - **Formatting** follows `.oxfmtrc.json`: width 80, double quotes, semicolons,
   trailing commas, and Markdown prose wrapped at 80 columns. Import sorting is
   lint's job, in five groups: `node:` built-ins, packages, `@node-effect/*`,

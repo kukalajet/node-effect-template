@@ -202,10 +202,26 @@ const order = yield* decodeOrder(request.body, request.id);
 ## 8. Separate phases with a blank line
 
 Lint requires a blank line before a `return` that follows another statement
-(`anti-slop/blank-line-before-return`) and around multi-line blocks
-(`anti-slop/blank-line-around-blocks`). Apply the same idea between the phases
-of a function: setup, the main work, and the result. A wall of twenty lines with
-no breaks hides where one step ends and the next begins.
+(`anti-slop/blank-line-before-return`), around multi-line blocks
+(`anti-slop/blank-line-around-blocks`), and around any other statement that
+spans more than one line (`anti-slop/blank-line-around-multiline-statements`).
+That last rule lets a type alias that reads the declaration above it stay
+attached, so a schema and its type read as one unit:
+
+```ts
+const UserId = Schema.String.check(Schema.isUUID());
+type UserId = typeof UserId.Type;
+
+const CreateUserSchema = Schema.Struct({
+  email: Email,
+  displayName: DisplayName,
+});
+type CreateUser = typeof CreateUserSchema.Type;
+```
+
+Apply the same idea between the phases of a function: setup, the main work, and
+the result. A wall of twenty lines with no breaks hides where one step ends and
+the next begins.
 
 ## 9. Comment decisions, not steps
 

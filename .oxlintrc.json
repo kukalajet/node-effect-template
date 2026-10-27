@@ -72,6 +72,7 @@
     ],
 
     "anti-slop/blank-line-around-blocks": "error",
+    "anti-slop/blank-line-around-multiline-statements": "error",
     "anti-slop/blank-line-before-return": "error",
     "anti-slop/import-order": "error",
     "anti-slop/max-loop-skips": "error",

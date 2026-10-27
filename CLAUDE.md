@@ -15,7 +15,9 @@ Lint (`.oxlintrc.json`) also requires:
   `function`, `class` or `type`, and a default export is
   `export { name as default }`.
 - A `// SAFETY:` comment before every `as` assertion other than `as const`.
-- A blank line before `return` and around multi-line blocks.
+- A blank line before `return`, around multi-line blocks, and around any other
+  multi-line statement. A `type X = typeof X…` alias may sit directly under the
+  declaration it reads.
 - Imports in five groups: `node:` built-ins, packages, `@node-effect/*`, `../`,
   then `./`.
 - No module mocking: replace a service with `Layer.succeed` or `Layer.mock`.
