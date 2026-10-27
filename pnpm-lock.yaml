@@ -230,6 +230,45 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@types/node@26.6.5)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5)(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(typescript@7.1.0-beta))(typescript@7.1.0-beta)
 
+  apps/api:
+    dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.6(effect@4.0.6)
+      '@node-effect/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@node-effect/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@node-effect/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@node-effect/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.6
+
+  apps/worker:
+    dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.6(effect@4.0.6)
+      '@node-effect/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@node-effect/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@node-effect/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.6
+
   packages/application:
     dependencies:
       '@node-effect/domain':
