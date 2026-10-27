@@ -9,7 +9,9 @@ if (databaseUrl === undefined) {
 const config = defineConfig({
   dialect: "postgresql",
   out: "./drizzle",
-  schema: "./packages/database/src/users/schema.ts",
+  // Every feature's table file, so a new feature's `schema.ts` reaches
+  // `pnpm db:generate` and `pnpm db:verify` without a change here.
+  schema: "./packages/database/src/*/schema.ts",
   dbCredentials: {
     url: databaseUrl,
   },

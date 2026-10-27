@@ -14,6 +14,7 @@
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:migrate": "node --env-file=.env packages/database/src/migrate.ts",
     "db:check": "drizzle-kit check --config=drizzle.config.ts",
+    "db:verify": "node scripts/check-migrations.ts",
     "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
     "openapi": "node scripts/export-openapi.ts",
     "fmt": "vp fmt",
@@ -23,7 +24,7 @@
     "test": "vp test run --project unit",
     "test:postgres": "vp test run --project postgres",
     "smoke:docker": "bash scripts/smoke-docker.sh",
-    "check": "vp check && tsc && vp test run --project unit"
+    "check": "vp check && tsc && node scripts/check-migrations.ts && vp test run --project unit"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
