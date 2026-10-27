@@ -16,6 +16,13 @@ x-app: &app
   image: ${APP_IMAGE_REPOSITORY:?Set it in .env}:${APP_IMAGE_TAG:-unreleased}
   restart: unless-stopped
   logging: *logging
+  # The application needs no Linux capabilities and writes only to /tmp.
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:size=16m
+  pids_limit: 128
   # A service that needs more variables merges this map:
   # `environment: { <<: *app-environment, EXTRA: value }`.
   environment: &app-environment
@@ -33,6 +40,17 @@ services:
     image: postgres:18.6-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
     restart: unless-stopped
     logging: *logging
+    # Started as the image's postgres user (uid and gid 70 in the Alpine
+    # image), the entrypoint skips its root-only steps, chown and the switch to
+    # postgres, so the server needs no Linux capabilities. It writes only to
+    # its volume, its socket directory and /tmp.
+    user: postgres
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /var/run/postgresql:uid=70,gid=70
+      - /tmp:size=16m
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-node_effect}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -101,6 +119,10 @@ services:
     command: ["tunnel", "--no-autoupdate", "run"]
     restart: unless-stopped
     logging: *logging
+    # The image runs as a non-root user and, with a token, writes no files.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set it in .env}
     mem_limit: 256m
