@@ -85,6 +85,7 @@ describe("AppConfig.layer", () => {
         Redacted.value(config.databaseUrl),
         "postgres://secret@test",
       );
+
       assert.strictEqual(String(config.databaseUrl), "<redacted>");
       assert.notInclude(JSON.stringify(config), "secret");
     }).pipe(

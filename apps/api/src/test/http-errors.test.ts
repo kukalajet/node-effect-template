@@ -67,9 +67,11 @@ describe("http errors", () => {
       () =>
         Effect.gen(function* () {
           const lines: Array<string> = [];
+
           const logger = Logger.map(Logger.formatJson, (line) => {
             lines.push(line);
           });
+
           const error = repositoryError(
             testCase.operation,
             testCase.diagnostics,
@@ -85,11 +87,13 @@ describe("http errors", () => {
           assert.strictEqual(log.level, "ERROR");
           assert.strictEqual(log.message, testCase.logMessage);
           assert.isUndefined(log.cause);
+
           assert.deepStrictEqual(log.annotations, {
             errorTag: "UserRepositoryError",
             operation: testCase.operation,
             diagnostics: testCase.diagnostics,
           });
+
           assert.notMatch(lines.join("\n"), sentinels);
         }),
     );

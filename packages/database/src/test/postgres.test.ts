@@ -28,6 +28,7 @@ const countingServer = Effect.acquireRelease(
     readonly server: Server;
   }>((resume) => {
     let connections = 0;
+
     const server = createServer((socket) => {
       connections += 1;
       socket.destroy();

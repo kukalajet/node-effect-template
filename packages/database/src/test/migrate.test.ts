@@ -29,9 +29,11 @@ const failedStatement = () =>
 const runMigration = <E>(program: Effect.Effect<void, E>) =>
   Effect.gen(function* () {
     const lines: Array<string> = [];
+
     const logger = Logger.map(Logger.formatJson, (line) => {
       lines.push(line);
     });
+
     const exit = yield* program.pipe(
       Effect.tapCause(reportMigrationFailure),
       Effect.provide(Logger.layer([logger])),
@@ -45,6 +47,7 @@ describe("migration failure reporting", () => {
   it.effect("logs a failed statement by its tag and diagnostics", () =>
     Effect.gen(function* () {
       const error = failedStatement();
+
       const { exit, output, lineCount } = yield* runMigration(
         Effect.fail(error),
       );
@@ -65,6 +68,7 @@ describe("migration failure reporting", () => {
     () =>
       Effect.gen(function* () {
         const error = failedStatement();
+
         // Like drizzle's migration transaction when the connection is lost:
         // its ROLLBACK dies, and Effect reports the statement's failure as a
         // defect too.

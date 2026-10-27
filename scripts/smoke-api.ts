@@ -74,16 +74,19 @@ await expectStatus("/users", 409, create);
 await expectStatus("/users/not-a-uuid", 400);
 await expectStatus("/users/00000000-0000-4000-8000-000000000000", 404);
 await expectStatus("/users", 400, postUser("{"));
+
 await expectStatus(
   "/users",
   400,
   postUser(JSON.stringify({ ...input, email: "grace@example.com", admin: 1 })),
 );
+
 await expectStatus(
   "/users",
   413,
   postUser(JSON.stringify({ ...input, displayName: "a".repeat(64 * 1024) })),
 );
+
 await expectStatus("/not-a-route", 404);
 
 console.log("API smoke checks passed against PostgreSQL");

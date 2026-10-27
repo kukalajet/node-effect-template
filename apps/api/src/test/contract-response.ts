@@ -53,6 +53,7 @@ const declaredResponseSchemas = <
     matched,
     `Undocumented operation: ${request.method} ${pathname}`,
   );
+
   assert.isNotEmpty(
     schemas,
     `Undocumented response: ${request.method} ${pathname} ${response.status}`,

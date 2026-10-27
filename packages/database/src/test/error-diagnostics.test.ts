@@ -15,12 +15,15 @@ describe("diagnosticsFromCause", () => {
         code,
         detail: "secret row detail",
       });
+
       const sqlReason = new reason({ cause: driverCause });
+
       const cause = new EffectDrizzleQueryError({
         query: "select 'secret SQL'",
         params: ["secret parameter"],
         cause: Cause.fail(new SqlError.SqlError({ reason: sqlReason })),
       });
+
       const diagnostics = diagnosticsFromCause(cause);
 
       assert.deepStrictEqual(diagnostics, { reason: sqlReason._tag, code });
@@ -37,6 +40,7 @@ describe("diagnosticsFromCause", () => {
     assert.deepStrictEqual(diagnosticsFromCause(cause), {
       reason: "UnknownError",
     });
+
     assert.deepStrictEqual(
       diagnosticsFromCause(
         new SqlError.SqlError({
@@ -61,13 +65,16 @@ describe("diagnosticsFromCause", () => {
       )({ count: "secret invalid count" }, { reportInput: true }).pipe(
         Effect.flip,
       );
+
       const diagnostics = diagnosticsFromCause(cause);
 
       assert.include(cause.message, "secret invalid count");
+
       assert.deepStrictEqual(diagnostics, {
         reason: "SchemaError",
         validationPaths: ["count"],
       });
+
       assert.notInclude(JSON.stringify(diagnostics), "secret");
     }),
   );

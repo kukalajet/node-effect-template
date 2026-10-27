@@ -27,13 +27,16 @@ const UserRoutes = HttpApiBuilder.layer(UsersApi).pipe(
 const userId = Schema.decodeUnknownSync(UserId)(
   "d5b9d3de-fda5-4a78-b8a5-2f3b60634d95",
 );
+
 const createdAt = new Date("2026-08-09T12:00:00.000Z");
+
 const user: User = {
   id: userId,
   email: "ada@example.com",
   displayName: "Ada Lovelace",
   createdAt,
 };
+
 const userJson = { ...user, createdAt: createdAt.toISOString() };
 const unknownUserId = "00000000-0000-4000-8000-000000000000";
 
@@ -47,6 +50,7 @@ const repositoryFailure = (operation: UserRepositoryError["operation"]) =>
 // Records every insert, so a test can tell whether a request got that far.
 const fakeRepository = (overrides: Partial<UserRepository["Service"]> = {}) => {
   const inserted: Array<unknown> = [];
+
   const layer = Layer.succeed(
     UserRepository,
     UserRepository.of({
@@ -128,6 +132,7 @@ describe("GET /users", () => {
       const response = await server.fetch(get("/users"));
 
       assert.strictEqual(response.status, 500);
+
       assert.deepStrictEqual(await response.json(), {
         error: {
           code: "DATABASE_ERROR",
@@ -161,6 +166,7 @@ describe("GET /users/:id", () => {
       const response = await server.fetch(get(`/users/${unknownUserId}`));
 
       assert.strictEqual(response.status, 404);
+
       assert.deepStrictEqual(await response.json(), {
         error: { code: "USER_NOT_FOUND", message: "User not found" },
       });
@@ -199,11 +205,13 @@ describe("POST /users", () => {
       );
 
       assert.strictEqual(response.status, 201);
+
       assert.deepStrictEqual(await response.json(), {
         ...userJson,
         email: "grace@example.com",
         displayName: "Grace Hopper",
       });
+
       assert.deepStrictEqual(repository.inserted, [
         { email: "grace@example.com", displayName: "Grace Hopper" },
       ]);
@@ -226,6 +234,7 @@ describe("POST /users", () => {
       );
 
       assert.strictEqual(response.status, 409);
+
       assert.deepStrictEqual(await response.json(), {
         error: {
           code: "USER_ALREADY_EXISTS",
@@ -318,12 +327,14 @@ describe("POST /users", () => {
       );
 
       assert.strictEqual(response.status, 413);
+
       assert.deepStrictEqual(await response.json(), {
         error: {
           code: "PAYLOAD_TOO_LARGE",
           message: "The request payload is too large",
         },
       });
+
       assert.deepStrictEqual(repository.inserted, []);
     } finally {
       await server.dispose();

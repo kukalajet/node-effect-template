@@ -151,22 +151,27 @@ describe("initializeTemplate", () => {
       join("packages", "domain", "package.json"),
       "pnpm-lock.yaml",
     ]);
+
     assert.strictEqual(
       await read("package.json"),
       `{ "name": "acme-service" }`,
     );
+
     assert.strictEqual(
       await read("packages/domain/package.json"),
       "@acme-service/domain acme_service",
     );
+
     assert.strictEqual(
       await read("pnpm-lock.yaml"),
       "@acme-service/domain acme_service",
     );
+
     assert.deepStrictEqual(
       new Uint8Array(await readFile(join(root, "image.bin"))),
       binary,
     );
+
     assert.strictEqual(await read(".git/config"), named);
     assert.strictEqual(await read("apps/api/node_modules/y.js"), named);
     assert.strictEqual(await read(".vite-hooks/_/pre-commit"), named);
@@ -178,6 +183,7 @@ describe("initializeTemplate", () => {
     await expect(initializeTemplate(root, "Not Valid")).rejects.toThrow(
       "Project name must be",
     );
+
     assert.strictEqual(await read("package.json"), `${templateName}-template`);
   });
 
@@ -198,6 +204,7 @@ describe("initializeTemplate", () => {
     await expect(initializeTemplate(root, "effect")).rejects.toThrow(
       "@effect scope",
     );
+
     assert.strictEqual(await read("pnpm-lock.yaml"), lockfile);
 
     await initializeTemplate(root, "acme-service");

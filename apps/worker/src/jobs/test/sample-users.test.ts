@@ -17,9 +17,11 @@ describe("sampleUsersPass", () => {
     Effect.gen(function* () {
       const limits: Array<number | undefined> = [];
       const lines: Array<string> = [];
+
       const logger = Logger.map(Logger.formatJson, (line) => {
         lines.push(line);
       });
+
       const repository = Layer.mock(UserRepository, {
         list: (limit) =>
           Effect.sync(() => {
@@ -38,6 +40,7 @@ describe("sampleUsersPass", () => {
       assert.lengthOf(lines, 1);
       const log = JSON.parse(lines.join(""));
       assert.strictEqual(log.message, "Worker user sample loaded");
+
       assert.deepStrictEqual(log.annotations, {
         service: "worker",
         userCount: 2,

@@ -20,7 +20,9 @@ const user = {
   displayName: "Ada Lovelace",
   createdAt: new Date("2026-08-09T12:00:00.000Z"),
 };
+
 const input = { email: user.email, displayName: user.displayName };
+
 const storedRow = [
   user.id,
   "  ada@example.com  ",
@@ -78,6 +80,7 @@ describe("UserRepositoryLive", () => {
           assert.instanceOf(failure, UserRepositoryError);
           assert.strictEqual(failure.operation, operation);
           assert.isTrue(Schema.isSchemaError(failure.cause));
+
           assert.deepStrictEqual(failure.diagnostics, {
             reason: "SchemaError",
             validationPaths: [operation === "list" ? `1.${path}` : path],

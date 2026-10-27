@@ -37,6 +37,7 @@ describe("pollWorkerWork", () => {
           return [];
         }),
       );
+
       const worker = yield* pollWorkerWork(1000).pipe(
         Effect.provide(repository),
         Effect.forkScoped,
@@ -71,10 +72,12 @@ describe("pollWorkerWork", () => {
           return Effect.fail(repositoryFailure);
         }),
       );
+
       const exit = yield* pollWorkerWork(1000).pipe(
         Effect.provide(repository),
         Effect.exit,
       );
+
       yield* TestClock.adjust(5000);
 
       assert(Exit.isFailure(exit));
@@ -117,6 +120,7 @@ describe("pollWorkerWork", () => {
           ),
         ),
       );
+
       const worker = yield* pollWorkerWork(1000).pipe(
         Effect.provide(repository),
         Effect.forkScoped,

@@ -19,6 +19,7 @@ describe("UserRepositoryLive.health", () => {
   it.effect("stops waiting for a stalled query after five seconds", () =>
     Effect.gen(function* () {
       const repository = yield* UserRepository;
+
       const fiber = yield* repository.health.pipe(
         Effect.flip,
         Effect.forkScoped,

@@ -19,10 +19,12 @@ const ada = Schema.decodeUnknownSync(CreateUserSchema)({
   email: "ada@example.com",
   displayName: "Ada Lovelace",
 });
+
 const grace = Schema.decodeUnknownSync(CreateUserSchema)({
   email: "grace@example.com",
   displayName: "Grace Hopper",
 });
+
 const unknownId = Schema.decodeUnknownSync(UserId)(
   "70ded4af-dcb4-4148-9e0d-a6bd38192a39",
 );
@@ -38,6 +40,7 @@ const rejectInsertsAs = (constraint: string) =>
          raise unique_violation using constraint = '${constraint}';
        end $$`,
     );
+
     yield* sql.unsafe(
       `create trigger reject_user before insert on users
        for each row execute function reject_user()`,
@@ -73,10 +76,12 @@ describe("UserRepositoryLive on PostgreSQL", () => {
         users.map((user) => user.email),
         [grace.email, ada.email],
       );
+
       assert.deepStrictEqual(
         users.map((user) => user.createdAt.toISOString()),
         ["2026-08-10T12:00:00.000Z", "2026-08-09T12:00:00.000Z"],
       );
+
       assert.deepStrictEqual(yield* repository.list(1), users.slice(0, 1));
     }).pipe(withUserDatabase),
   );
@@ -105,6 +110,7 @@ describe("UserRepositoryLive on PostgreSQL", () => {
       const repository = yield* UserRepository;
 
       yield* repository.insert(ada);
+
       const error = yield* repository
         .insert({ ...ada, displayName: "Another Ada" })
         .pipe(Effect.flip);
@@ -123,6 +129,7 @@ describe("UserRepositoryLive on PostgreSQL", () => {
 
       assert.instanceOf(error, UserRepositoryError);
       assert.strictEqual(error.operation, "insert");
+
       assert.deepStrictEqual(error.diagnostics, {
         reason: "UniqueViolation",
         code: "23505",
@@ -137,9 +144,11 @@ describe("UserRepositoryLive on PostgreSQL", () => {
 
       yield* sql`insert into users (id, email, display_name)
         values (${unknownId}, 'not-an-email', 'Ada Lovelace')`;
+
       const error = yield* repository.findById(unknownId).pipe(Effect.flip);
 
       assert.instanceOf(error, UserRepositoryError);
+
       assert.deepStrictEqual(error.diagnostics, {
         reason: "SchemaError",
         validationPaths: ["email"],

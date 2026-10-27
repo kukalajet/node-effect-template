@@ -17,6 +17,7 @@ describe("migrateDatabase", () => {
   it.live("applies each migration once and records it in the journal", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
+
       // The test schema is first on the search path. Keeping the journal
       // there too isolates it from the shared `drizzle` schema.
       const [schema] = yield* sql<{
@@ -31,6 +32,7 @@ describe("migrateDatabase", () => {
       const journal = yield* sql<{ readonly name: string }>`
         select name from ${sql(schema.name)}.__drizzle_migrations order by id
       `;
+
       const tables = yield* sql<{ readonly name: string }>`
         select table_name as name from information_schema.tables
         where table_schema = ${schema.name} order by table_name
@@ -40,6 +42,7 @@ describe("migrateDatabase", () => {
         journal.map((migration) => migration.name),
         migrationNames,
       );
+
       assert.deepStrictEqual(
         tables.map((table) => table.name),
         ["__drizzle_migrations", "users"],

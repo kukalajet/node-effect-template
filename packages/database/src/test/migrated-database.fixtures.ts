@@ -67,6 +67,7 @@ const testDatabase = (statements: ReadonlyArray<string>) =>
     Effect.gen(function* () {
       const databaseUrl = yield* Config.String("DATABASE_URL");
       const schemaName = `test_${crypto.randomUUID().replaceAll("-", "")}`;
+
       const config = Layer.succeed(
         AppConfig,
         AppConfig.of({

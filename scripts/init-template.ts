@@ -47,6 +47,7 @@ const assertScopeIsUnused = async (rootPath: string, projectName: string) => {
   if (!existsSync(lockfilePath)) return;
 
   const lockfile = await readFile(lockfilePath, "utf8");
+
   const scopes = new Set(
     Array.from(lockfile.matchAll(registryScopePattern), ([, scope]) => scope),
   );
@@ -66,6 +67,7 @@ const replaceTemplateIdentifiers = (
 ): string => {
   const sourceDatabaseName = sourceProjectName.replaceAll("-", "_");
   const databaseName = projectName.replaceAll("-", "_");
+
   const replacements = new Map([
     [projectName, projectName],
     [databaseName, databaseName],
@@ -73,11 +75,13 @@ const replaceTemplateIdentifiers = (
     [sourceDatabaseName, databaseName],
     [sourceProjectName, projectName],
   ]);
+
   // Longest first, so the repository name wins over the bare template name
   // where both match. Validated names hold no regex syntax.
   const identifiers = [...replacements.keys()].toSorted(
     (left, right) => right.length - left.length,
   );
+
   const identifierPattern = new RegExp(identifiers.join("|"), "g");
 
   return source.replaceAll(

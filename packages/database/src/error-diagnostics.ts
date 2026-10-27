@@ -44,6 +44,7 @@ const diagnosticsFromCause = (cause: unknown) => {
 
   if (Schema.isSchemaError(cause)) {
     const { issues } = formatValidationIssues(cause.issue);
+
     const validationPaths = issues.map((issue) => {
       const path = issue.path?.map(String).join(".");
 

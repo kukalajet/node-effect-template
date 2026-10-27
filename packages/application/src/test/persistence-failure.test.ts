@@ -17,11 +17,13 @@ describe("persistence failures", () => {
     });
 
     assert.isTrue(isPersistenceFailure(error));
+
     assert.deepStrictEqual(persistenceFailureReport(error), {
       _tag: "UserRepositoryError",
       operation: "findById",
       diagnostics: { reason: "AuthorizationError", code: "42501" },
     });
+
     assert.notInclude(
       JSON.stringify(persistenceFailureReport(error)),
       "secret",
@@ -38,6 +40,7 @@ describe("redactCause", () => {
   it("reports sensitive failures and defects and keeps other reasons", () => {
     const isSecret = (value: unknown): value is string => value === "secret";
     const unrelated = Cause.makeDieReason(new Error("unrelated"));
+
     const cause = Cause.fromReasons([
       Cause.makeFailReason("secret"),
       Cause.makeDieReason("secret"),
@@ -47,10 +50,12 @@ describe("redactCause", () => {
     const reasons = redactCause(cause, isSecret, () => "redacted").reasons;
 
     assert.lengthOf(reasons, 3);
+
     assert.deepStrictEqual(
       reasons.map((reason) => reason._tag),
       ["Fail", "Die", "Die"],
     );
+
     assert.deepStrictEqual(
       reasons.map((reason) => {
         if (Cause.isFailReason(reason)) return reason.error;
@@ -60,6 +65,7 @@ describe("redactCause", () => {
       }),
       ["redacted", "redacted", unrelated.defect],
     );
+
     assert.strictEqual(reasons[2], unrelated);
   });
 });

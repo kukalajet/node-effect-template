@@ -32,10 +32,12 @@ describe("user repository errors", () => {
         cause: Object.assign(new Error("permission denied"), { code: "42501" }),
       }),
     });
+
     const failure = toUserRepositoryError("findById", cause);
 
     assert.strictEqual(failure.operation, "findById");
     assert.strictEqual(failure.cause, cause);
+
     assert.deepStrictEqual(failure.diagnostics, {
       reason: "AuthorizationError",
       code: "42501",

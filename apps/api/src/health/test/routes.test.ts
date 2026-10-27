@@ -26,6 +26,7 @@ const databaseUnavailable = new UserRepositoryError({
 // A repository whose health check succeeds or fails and counts its calls.
 const repositoryWithHealth = (available: boolean) => {
   const health = { checks: 0 };
+
   const layer = Layer.mock(UserRepository, {
     health: Effect.suspend(() => {
       health.checks += 1;
@@ -85,10 +86,12 @@ describe("health routes", () => {
         const response = await server.fetch(path);
 
         assert.strictEqual(response.status, 200);
+
         assert.deepStrictEqual(await response.json(), {
           status: "ok",
           database: "ok",
         });
+
         assert.strictEqual(repository.health.checks, 1);
       } finally {
         await server.dispose();
@@ -103,12 +106,14 @@ describe("health routes", () => {
         const response = await server.fetch(path);
 
         assert.strictEqual(response.status, 503);
+
         assert.deepStrictEqual(await response.json(), {
           error: {
             code: "DATABASE_UNAVAILABLE",
             message: "The database is unavailable",
           },
         });
+
         assert.strictEqual(repository.health.checks, 1);
       } finally {
         await server.dispose();

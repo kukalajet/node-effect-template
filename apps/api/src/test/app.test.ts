@@ -73,6 +73,7 @@ describe("API composition", () => {
       for (const path of ["/health/ready", "/health"]) {
         const response = await handler(get(path));
         assert.strictEqual(response.status, 200);
+
         assert.deepStrictEqual(await response.json(), {
           status: "ok",
           database: "ok",
@@ -85,6 +86,7 @@ describe("API composition", () => {
 
       const openapi = await handler(get("/openapi.json"));
       assert.strictEqual(openapi.status, 200);
+
       assert.match(
         openapi.headers.get("content-type") ?? "",
         /^application\/json/,
@@ -135,6 +137,7 @@ describe("OpenAPI document", () => {
 
     assert.strictEqual(specification.openapi, "3.1.0");
     assert.strictEqual(specification.info.title, "node-effect-template API");
+
     assert.deepStrictEqual(
       Object.keys(specification.paths).sort(),
       [...new Set(documentedOperations.map(({ path }) => path))].sort(),
@@ -147,6 +150,7 @@ describe("OpenAPI document", () => {
 
       assert.isFalse(operationIds.has(operation.operationId), name);
       operationIds.add(operation.operationId);
+
       assert.deepStrictEqual(
         Object.keys(operation.responses).sort(),
         [success, ...errors].map(String).sort(),
@@ -194,6 +198,7 @@ describe("OpenAPI document", () => {
     const readiness = specification.paths["/health/ready"]?.get;
     assert.exists(readiness);
     assert.strictEqual(readiness.operationId, "health.ready");
+
     assert.deepStrictEqual(
       readiness.responses[503]?.content?.["application/json"]?.schema,
       errorEnvelopeSchema(
@@ -210,9 +215,11 @@ describe("Swagger UI", () => {
 
     try {
       const html = await (await handler(get("/docs"))).text();
+
       const embedded = html.match(
         /<script id="swagger-spec" type="application\/json">\s*([\s\S]*?)\s*<\/script>/,
       )?.[1];
+
       assert.exists(embedded);
 
       assert.deepStrictEqual(JSON.parse(embedded), OpenApi.fromApi(Api));

@@ -20,6 +20,7 @@ describe("user row schemas", () => {
       decodeRow({ ...row, email: " ada@example.com " }),
       row,
     );
+
     assert.throws(() => decodeRow({ ...row, id: "not-a-uuid" }));
     assert.throws(() => decodeRow({ ...row, displayName: "   " }));
     assert.throws(() => decodeRow({ ...row, password: "secret" }));
@@ -29,10 +30,12 @@ describe("user row schemas", () => {
     const insert = { email: row.email, displayName: row.displayName };
 
     assert.deepStrictEqual(decodeInsert(insert), insert);
+
     assert.deepStrictEqual(decodeInsert({ ...insert, id: row.id }), {
       ...insert,
       id: row.id,
     });
+
     assert.throws(() => decodeInsert({ ...insert, id: "not-a-uuid" }));
     assert.throws(() => decodeInsert({ ...insert, email: "not-an-email" }));
   });

@@ -53,6 +53,7 @@ const makeUserRepository = Effect.gen(function* () {
       .pipe(
         Effect.mapError((cause) => toUserRepositoryError("findById", cause)),
       );
+
     const user = Option.fromUndefinedOr(rows[0]);
 
     if (Option.isNone(user)) {

@@ -19,9 +19,11 @@ type WorkerRun = {
 const runWorker = <E>(program: Effect.Effect<void, E>) =>
   new Promise<WorkerRun>((resolve) => {
     const lines: Array<string> = [];
+
     const logger = Logger.map(Logger.formatJson, (line) => {
       lines.push(line);
     });
+
     const runMain = Runtime.makeRunMain(({ fiber, teardown }) => {
       fiber.addObserver((exit) => {
         teardown(exit, (code) => resolve({ exit, code, lines }));

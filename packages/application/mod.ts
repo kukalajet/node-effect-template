@@ -4,6 +4,7 @@ export {
   persistenceFailureReport,
   redactCause,
 } from "./src/persistence-failure.ts";
+
 export {
   UserRepository,
   UserRepositoryError,
