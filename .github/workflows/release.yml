@@ -1,8 +1,8 @@
 name: Release
 
 # Production release on every push to main, with manual dispatch available: the
-# full CI first, then the image, then bin/release on the server. See
-# deploy/vps/README.md for the server side.
+# full CI first, then the image (publish), then bin/release on the server
+# (deploy) with the image's digest. See deploy/vps/README.md for the server side.
 on:
   push:
     branches: [main]
@@ -23,18 +23,21 @@ jobs:
     permissions:
       contents: read
 
-  release:
+  # Builds, smoke-tests and publishes the image. It can write packages but never
+  # sees the server's SSH key.
+  publish:
     needs: ci
     # PRODUCTION_HOST must be a repository variable: this condition is evaluated
-    # before the job enters its environment. Until it is set, pushes to main run
+    # before a job enters its environment. Until it is set, pushes to main run
     # CI only.
     if: github.ref == 'refs/heads/main' && vars.PRODUCTION_HOST != ''
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: production
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,7 +48,8 @@ jobs:
         run: |
           echo "APP_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      # x86-64 only; deploy/vps/README.md explains why.
+      # x86-64 only; deploy/vps/README.md explains why. bin/release refuses an
+      # image whose revision label is not the commit it releases.
       - name: Build image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -55,6 +59,7 @@ jobs:
           tags: ${{ env.APP_IMAGE }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
       - name: Smoke-test the image
         run: bash scripts/smoke-docker.sh
@@ -63,19 +68,46 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The digest of exactly what was pushed, from `docker push` itself. The
+      # server releases that digest, so a later push to the same tag cannot
+      # change what it runs.
       - name: Publish image
-        run: docker push "$APP_IMAGE"
-      # The deploy key's forced command is bin/release, which receives only this
-      # SHA and takes everything else from the image and the server's .env.
+        id: publish
+        run: |
+          output=$(docker push "$APP_IMAGE")
+          printf '%s\n' "$output"
+          digest=$(printf '%s\n' "$output" \
+            | sed -n -E "s/^${GITHUB_SHA}: digest: (sha256:[0-9a-f]{64}) size: [0-9]+$/\1/p")
+          if [[ ! $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::docker push printed no digest for $APP_IMAGE"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Published \`$APP_IMAGE@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # Sends the commit and digest to the server. It holds the SSH key, runs no
+  # repository code and its token has no permissions.
+  deploy:
+    needs: publish
+    if: github.ref == 'refs/heads/main' && vars.PRODUCTION_HOST != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    permissions: {}
+    steps:
+      # The deploy key's forced command is bin/release, which receives only the
+      # commit and the image digest, and takes everything else from that image
+      # and the server's .env.
       - name: Release on the server
         env:
           SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
           KNOWN_HOSTS: ${{ vars.PRODUCTION_KNOWN_HOSTS }}
           HOST: ${{ vars.PRODUCTION_HOST }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
         run: |
           install -d -m 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/release
           chmod 600 ~/.ssh/release
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           ssh -n -i ~/.ssh/release -o IdentitiesOnly=yes -o BatchMode=yes \
-            "deploy@$HOST" "$GITHUB_SHA"
+            "deploy@$HOST" "$GITHUB_SHA $DIGEST"

@@ -322,17 +322,22 @@ environment; local development and CI are the checks before production.
 
 Every push to `main` starts
 [the Release workflow](./.github/workflows/release.yml), which also runs on
-manual dispatch. It runs the whole CI first, including the PostgreSQL tests,
-then builds and smoke-tests the image, pushes it to GitHub Container Registry
-tagged with the commit SHA, and sends that SHA over SSH to the server, whose
-`bin/release` takes everything else from the image. The release script migrates
-once, then restarts the API, worker and tunnel, and fails if the worker or
-tunnel keeps restarting. See [the VPS guide](./deploy/vps/README.md) for server
-setup, secrets, rollback, backups, restore drills and monitoring.
+manual dispatch. It runs the whole CI first, including the PostgreSQL tests. Its
+`publish` job then builds and smoke-tests the image, labels it with the commit
+and pushes it to GitHub Container Registry tagged with the commit SHA. Its
+`deploy` job, the only one that holds the server's SSH key, sends the SHA and
+the pushed image's digest to the server, whose `bin/release` takes everything
+else from that image. The release script pulls the image by digest and checks
+its commit label, migrates once, restarts the API, worker and tunnel, and checks
+that the API is ready, the tunnel is connected and the worker and tunnel stay
+up. When a check fails, it restores the previous release on its own and fails.
+See [the VPS guide](./deploy/vps/README.md) for server setup, secrets, rollback,
+backups, restore drills and monitoring.
 
-The release job runs only when the repository variable `PRODUCTION_HOST` is set,
-so until the server exists, pushes to `main` run CI only. If you deploy another
-way, delete `release.yml` and give `ci.yml` its push trigger back (see above).
+The `publish` and `deploy` jobs run only when the repository variable
+`PRODUCTION_HOST` is set, so until the server exists, pushes to `main` run CI
+only. If you deploy another way, delete `release.yml` and give `ci.yml` its push
+trigger back (see above).
 
 ## Editor
 

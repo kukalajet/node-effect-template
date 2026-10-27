@@ -5,10 +5,12 @@ Compose project in this directory. Cloudflare Tunnel is the only public ingress:
 the host accepts no inbound connections except key-only SSH, and PostgreSQL is
 never reachable from the internet. On every push to `main`, GitHub Actions runs
 the full CI, builds and smoke-tests the image, publishes it to GitHub Container
-Registry (GHCR) tagged with the commit SHA, and sends that SHA to `bin/release`
-on the server over SSH. Nightly encrypted backups go to S3-compatible storage
-with restic. There is one environment; local development and CI are the checks
-before production.
+Registry (GHCR) tagged with the commit SHA, and sends that SHA and the image's
+digest to `bin/release` on the server over SSH. The server runs the image by
+digest, checks that the release serves, and restores the previous release when
+it does not. Nightly encrypted backups go to S3-compatible storage with restic.
+There is one environment; local development and CI are the checks before
+production.
 
 | Path                                                                     | Purpose                                                              |
 | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
@@ -25,7 +27,7 @@ The image carries this directory as `/app/deploy/vps`. Each release installs
 | Service       | Image                                               | Reachable from                         | Data                   |
 | ------------- | --------------------------------------------------- | -------------------------------------- | ---------------------- |
 | `cloudflared` | `cloudflare/cloudflared`, pinned by digest          | Outbound only                          | None                   |
-| `api`         | `<APP_IMAGE_REPOSITORY>:<sha>`                      | `cloudflared`                          | None                   |
+| `api`         | `<APP_IMAGE_REPOSITORY>:<sha>@<digest>`             | `cloudflared`                          | None                   |
 | `worker`      | Same image, `node apps/worker/src/main.ts`          | Nothing inbound                        | None                   |
 | `migrate`     | Same image, `node packages/database/src/migrate.ts` | Nothing inbound; runs once per release | None                   |
 | `postgresql`  | `postgres:18.6-alpine`, pinned by digest            | Docker network; host `127.0.0.1:5432`  | `postgres_data` volume |
@@ -41,15 +43,17 @@ writes nothing.
 
 `compose.yml` differs from the local `docker-compose.yml`:
 
-- It pulls images from GHCR and never builds on the host. Until the first
-  release, the app image tag is a placeholder that fails if started.
+- It pulls images from GHCR and never builds on the host. The app image is
+  pinned by digest; until the first release, its tag and digest are placeholders
+  that fail if started.
 - `migrate` runs only when `bin/release` invokes it, under the `release`
   profile.
 - Every long-running service (`postgresql`, `api`, `worker`, `cloudflared`)
   restarts unless stopped and has a memory ceiling. The worker exits on any
   failure and relies on that restart policy. Every service, `migrate` included,
   rotates its logs with Docker's `local` driver.
-- It adds `cloudflared`.
+- It adds `cloudflared`, whose healthcheck passes only while the tunnel is
+  connected to Cloudflare (see step 5).
 
 On the server the files are laid out as:
 
@@ -60,8 +64,10 @@ On the server the files are laid out as:
   bin/release                release script
   bin/backup                 backup script
   .env                       secrets, from env.example, mode 0600
-  release.env                APP_IMAGE_TAG of the current release, written by bin/release
-  releases.log               one line per release: time, commit, image digest
+  release.env                APP_IMAGE_TAG and APP_IMAGE_DIGEST of the current release, written by bin/release
+  releases.log               one line per release attempt: time, commit, image digest, outcome
+  release-output.log         everything the latest release attempt printed
+  .previous/                 compose.yml, bin/ and release.env of the release before, for rollback
 /etc/node-effect-template/restic.env   backup credentials, mode 0600, owned by root
 ```
 
@@ -149,10 +155,10 @@ usermod -aG docker deploy
 
 Membership in the `docker` group is equivalent to root: anyone who can run
 commands as `deploy` controls the host. Only `deploy` gets it, and its only SSH
-key runs `bin/release` with nothing but a commit SHA (step 7). `compose.yml`
-rotates each service's logs itself, so `/etc/docker/daemon.json` needs no
-changes. It publishes only PostgreSQL, on loopback; keep it that way, because
-published ports bypass `ufw`.
+key runs `bin/release` with nothing but a commit SHA and an image digest (step
+7). `compose.yml` rotates each service's logs itself, so
+`/etc/docker/daemon.json` needs no changes. It publishes only PostgreSQL, on
+loopback; keep it that way, because published ports bypass `ufw`.
 
 ### 5. Cloudflare Tunnel and DNS
 
@@ -168,6 +174,17 @@ published ports bypass `ufw`.
 
 If the API is not meant to be public, put the hostname, or at least `/docs` and
 `/openapi.json`, behind Cloudflare Access.
+
+`cloudflared` serves its metrics and a `/ready` endpoint on `127.0.0.1:20241`
+inside its container only (`TUNNEL_METRICS`). Its healthcheck,
+`cloudflared tunnel ready`, reads that endpoint, which answers 200 once the
+tunnel has a connection to Cloudflare, so a release waits for the tunnel and
+fails when it does not connect. A Cloudflare outage during a release therefore
+fails the release. `bin/release` restores the previous release but reports
+`ROLLBACK FAILED`, because that release cannot pass the tunnel check either. The
+previous release is back in place and serves again once the tunnel reconnects;
+release again after the outage. After an image update, check that the new
+`cloudflared` still has `tunnel ready`.
 
 The API keeps idle connections open for 95 seconds (`keepAliveTimeout` in
 `apps/api/src/main.ts`), longer than `cloudflared`'s default
@@ -204,9 +221,16 @@ Run every Compose command through `bin/compose`, which loads both `.env` and
 
 ### 7. GitHub
 
-The Release workflow's `release` job runs in the `production` environment, only
-on `main`, and only once the repository variable `PRODUCTION_HOST` is set. Until
-then, pushes to `main` run CI only.
+After CI, the Release workflow runs two jobs, only on `main` and only once the
+repository variable `PRODUCTION_HOST` is set. Until then, pushes to `main` run
+CI only.
+
+- `publish` builds, smoke-tests and pushes the image, labelled with its commit
+  (`org.opencontainers.image.revision`), and outputs the digest `docker push`
+  reported. It may write packages, and it never sees the SSH key.
+- `deploy` runs in the `production` environment, which holds the SSH key. It
+  checks out no code, its token has no permissions, and it only sends
+  `<sha> <digest>` to the server.
 
 1. Under **Settings → Environments**, create `production`. Under **Deployment
    branches and tags**, choose **Selected branches and tags** and allow only
@@ -242,21 +266,25 @@ chown deploy:deploy /home/deploy/.ssh/authorized_keys && chmod 600 /home/deploy/
 
 `restrict` turns off port, agent and X11 forwarding, terminals and `~/.ssh/rc`.
 Whatever the client asks to run, sshd runs `bin/release` instead and passes the
-request in `SSH_ORIGINAL_COMMAND`. `bin/release` accepts only a 40-character
-lowercase hexadecimal SHA there and never reads standard input. It takes the
-image repository from `.env`, and `compose.yml` and `bin/` from the image it
-pulls, so the key cannot send files, pick another image repository or run any
-other command.
+request in `SSH_ORIGINAL_COMMAND`. `bin/release` accepts exactly a 40-character
+lowercase hexadecimal SHA, optionally followed by one space and
+`sha256:<64 lowercase hexadecimal characters>`, and never reads standard input.
+It takes the image repository from `.env`, and `compose.yml` and `bin/` from the
+image it pulls, so the key cannot send files, pick another image repository or
+run any other command.
 
-What the key can still do is release any tag that exists in
-`APP_IMAGE_REPOSITORY`, including an older one, and a release runs that image's
-`compose.yml`, `bin/` and migrations on the host. Normally the tags are the
-commits the Release workflow built. GHCR, however, accepts pushes from any
-workflow in this repository that asks for `packages: write`, on any branch, so
-anyone with write access to the repository can replace a tag's image, and a
-later release of that tag, such as a rollback, gives them root on the host.
-Before rolling back by hand, `docker pull` the tag and check that its digest
-matches the one `releases.log` recorded for that commit.
+What the key can still do is release, by digest, any image in
+`APP_IMAGE_REPOSITORY` whose revision label names the commit it sends, including
+an older one, and a release runs that image's `compose.yml`, `bin/` and
+migrations on the host. The server never resolves a tag: CI sends the digest it
+pushed, and a rollback by SHA alone uses the digest `releases.log` recorded. So
+replacing a tag in GHCR, which any workflow in this repository that asks for
+`packages: write` can do on any branch, no longer changes what a release or a
+rollback runs. Anyone with write access can still push an image labelled with
+any commit, but it runs only if its digest reaches `bin/release`: through this
+key, which only `main`'s `deploy` job holds, or from an operator. When you pass
+a digest by hand, take it from that commit's Release run, whose `publish` job
+summary shows it.
 
 GHCR packages are private by default. Give `deploy` read access with a classic
 personal access token that has only `read:packages` (GHCR does not accept
@@ -283,46 +311,90 @@ Do not run `scripts/smoke-api.ts` against production: it creates users.
 Every push to `main`, including a merge, starts
 [the Release workflow](../../.github/workflows/release.yml). It first runs the
 whole of [CI](../../.github/workflows/ci.yml): checks, the image smoke test and
-the PostgreSQL tests. Then it builds the image (the build runs `pnpm check`),
-runs the Docker smoke test on it, pushes `ghcr.io/<owner>/<repository>:<sha>`,
-and connects to the server as `deploy`, sending only the SHA; the forced command
-runs `bin/release`. Releases queue rather than cancel each other. Without
-staging, merging to `main` is the deploy decision.
+the PostgreSQL tests. Then its `publish` job builds the image (the build runs
+`pnpm check`), runs the Docker smoke test on it and pushes
+`ghcr.io/<owner>/<repository>:<sha>`, and its `deploy` job connects to the
+server as `deploy` and sends `<sha> <digest>`; the forced command runs
+`bin/release`. Releases queue rather than cancel each other. Without staging,
+merging to `main` is the deploy decision.
 
 [`bin/release`](bin/release) runs as `deploy`; started as root, it switches to
-`deploy` itself. It:
+`deploy` itself. It takes `<sha> <digest>`, or `<sha>` alone for a commit that
+`releases.log` shows as released, and then:
 
-1. Takes a lock, pulls `<APP_IMAGE_REPOSITORY>:<sha>`, and copies `compose.yml`
-   and `bin/` out of the image into a staging directory.
-2. With the staged `compose.yml` and the server's `.env`, validates the
-   configuration, pulls the images and runs `migrate` once. Compose recreates
-   any service whose definition changed, PostgreSQL included, while the previous
-   release keeps serving. If any of this fails, the release stops and
-   `compose.yml`, `bin/`, `release.env` and the running containers stay as they
-   were.
-3. Installs the staged `compose.yml` and `bin/`, records the tag in
-   `release.env`, and runs `bin/compose up -d --wait` for the API, worker and
-   tunnel.
-4. Waits 15 seconds and fails unless the worker and `cloudflared` are still
-   running without another restart. `up --wait` alone cannot tell: it accepts a
-   container without a healthcheck once it has started, even one that exits at
-   once and restarts in a loop. A release that fails here is installed but
-   unhealthy; roll back.
-5. Appends the commit and image digest to `releases.log`, and keeps the three
-   newest images.
+1. Takes a lock and pulls `<APP_IMAGE_REPOSITORY>@<digest>`. It refuses an image
+   whose `org.opencontainers.image.revision` label is not the SHA, then tags it
+   `<APP_IMAGE_REPOSITORY>:<sha>` on the host and copies `compose.yml` and
+   `bin/` out of it into a staging directory.
+2. With the staged `compose.yml`, the server's `.env` and the new tag and
+   digest, validates the configuration, pulls the images and runs `migrate`
+   once. Compose recreates any service whose definition changed, PostgreSQL
+   included, while the previous release keeps serving. If any of this fails, the
+   release stops and `compose.yml`, `bin/`, `release.env` and the running
+   containers stay as they were.
+3. Copies the current `compose.yml`, `bin/` and `release.env` to `.previous/`,
+   then installs the staged `compose.yml` and `bin/` and a `release.env` with
+   the new `APP_IMAGE_TAG` and `APP_IMAGE_DIGEST`.
+4. Checks the release:
+   - `bin/compose up -d --wait` for the API, worker and tunnel succeeds, which
+     needs the API's liveness healthcheck and the tunnel's readiness healthcheck
+     to pass.
+   - `/health/ready` answers 200 within 30 seconds, asked from inside the API
+     container, so the API reaches the database.
+   - The worker and `cloudflared` keep running for 15 seconds without another
+     restart. `up --wait` alone cannot tell: it accepts a container without a
+     healthcheck once it has started, even one that exits at once and restarts
+     in a loop.
+5. If every check passes, appends a `RELEASED` line to `releases.log` and
+   removes this repository's images except those of the three latest releases
+   and of the previous one. That includes untagged ones: an image refused for
+   its label, or one whose tag a newer image of the same commit took over.
+6. If a check fails, appends a `FAILED` line, restores `.previous/`, runs the
+   same checks on the restored release and exits 1, printing which check failed
+   and that it rolled back. Images are not pruned. The first release has no
+   previous one: it stays installed, unhealthy, and still exits 1. If the
+   restored release fails its checks too, `bin/release` prints `ROLLBACK FAILED`
+   and production needs attention.
+
+Exit status 2 means the request was malformed, or named only a SHA that
+`releases.log` has no release of; 1 means any other failure. Either way the
+output says what happened.
+
+Once the request is valid, `bin/release` runs to the end even if the `deploy`
+job is cancelled or the SSH connection drops, so it never stops between
+installing a release and restoring the previous one. It also writes its output
+to `release-output.log`, replacing the previous attempt's. After a cancelled or
+interrupted deploy, read the outcome there and in `releases.log`.
+
+`releases.log` has one line per release attempt that reached step 4, separated
+by single spaces:
+
+```text
+2026-10-27T15:37:28Z 6dcd4ce23d88e2ee9568ba546c007c63d9131c1b sha256:8dc9d8ff3672f752c2c0fac2f4206604f7921ca31a11a2d6623657fe55587161 RELEASED
+```
+
+`release.env` always names the installed release. After a successful release or
+rollback, that is the last `RELEASED` line; a failed first release or a failed
+rollback leaves an unverified release installed.
 
 The single API replica is unavailable for a few seconds while it restarts, and
-the tunnel returns an error page meanwhile.
+the tunnel returns an error page meanwhile. An automatic rollback restarts it
+again.
 
 Migrations never run at application startup. They must work with the previous
 release still running, because it serves traffic while `migrate` runs and a
 rollback does not undo them: add columns and tables first, and remove old ones
 in a later release.
 
-**Rollback.** Run `/opt/node-effect-template/bin/release <previous-sha>` on the
-server, or re-run that commit's Release workflow run in GitHub Actions. Either
-way the previous release's `compose.yml` and `bin/` come back with its image.
-Fix forward when the previous code cannot work with the newer schema.
+**Rollback.** A release that fails its checks rolls itself back. To return to an
+earlier release by hand, run `/opt/node-effect-template/bin/release <sha>` on
+the server; it releases the digest `releases.log` recorded for that commit. For
+a commit this server never released, pass the digest from that commit's Release
+run: `bin/release <sha> sha256:<digest>`. Re-running only the `deploy` job of
+that commit's Release run does the same, because it reuses the `publish` job's
+digest; re-running every job builds and publishes a new image instead. Either
+way the release's `compose.yml` and `bin/` come back with its image. Fix forward
+when the previous code cannot work with the newer schema.
 
 ## Backups and restore
 
@@ -435,6 +507,7 @@ Keep production private until every item passes.
       database is back.
 - [ ] After `reboot`, every service and the tunnel return without manual action.
 - [ ] A release with a migration, then a rollback to the previous commit.
+- [ ] A release whose API cannot reach the database rolls itself back.
 - [ ] The backup and restore drill passes.
 - [ ] From outside, only port 22 answers (`nmap -Pn <server>`); PostgreSQL is
       unreachable.

@@ -11,11 +11,13 @@ x-logging: &logging
     max-file: "5"
 
 x-app: &app
-  # bin/release writes APP_IMAGE_TAG to release.env; until the first release the
-  # placeholder tag fails loudly.
-  image: ${APP_IMAGE_REPOSITORY:?Set it in .env}:${APP_IMAGE_TAG:-unreleased}
   restart: unless-stopped
   logging: *logging
+  # Pinned by digest: bin/release writes the commit and the image digest it
+  # checked to release.env. Until the first release the placeholders fail
+  # loudly.
+  # oxfmt-ignore
+  image: ${APP_IMAGE_REPOSITORY:?Set it in .env}:${APP_IMAGE_TAG:-unreleased}@${APP_IMAGE_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
   # The application needs no Linux capabilities and writes only to /tmp.
   read_only: true
   cap_drop: [ALL]
@@ -125,9 +127,20 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set it in .env}
+      # Metrics and the /ready endpoint, on the container's loopback only.
+      TUNNEL_METRICS: 127.0.0.1:20241
     mem_limit: 256m
     depends_on:
       - api
+    # Healthy while the tunnel has a connection to Cloudflare, so bin/release's
+    # `up --wait` waits for it. `tunnel ready` reads TUNNEL_METRICS.
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
 
 volumes:
   postgres_data:
