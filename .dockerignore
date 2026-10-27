@@ -1,0 +1,14 @@
+.git
+**/node_modules
+.env
+.env.*
+!.env.example
+coverage
+dist
+.DS_Store
+*.pem
+*.key
+.vite-hooks/_
+.claude
+.zed
+.github
