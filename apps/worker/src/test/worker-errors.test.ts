@@ -1,5 +1,14 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Cause, Context, Effect, Exit, Layer, Logger, Runtime } from "effect";
+import {
+  Cause,
+  Context,
+  Effect,
+  Exit,
+  Layer,
+  Logger,
+  References,
+  Runtime,
+} from "effect";
 
 import { UserRepository, UserRepositoryError } from "@node-effect/application";
 
@@ -33,9 +42,12 @@ const runWorker = <E>(program: Effect.Effect<void, E>) =>
     runMain(
       Effect.withFiber((fiber) => {
         // Captures the runtime's own reporting too, without changing the
-        // global loggers.
+        // global loggers, and the sample job's Debug line.
         fiber.setContext(
-          Context.add(fiber.context, Logger.CurrentLoggers, new Set([logger])),
+          fiber.context.pipe(
+            Context.add(Logger.CurrentLoggers, new Set([logger])),
+            Context.add(References.MinimumLogLevel, "Debug"),
+          ),
         );
 
         return program.pipe(Effect.tapCause(reportWorkerFailure));

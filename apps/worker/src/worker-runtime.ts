@@ -1,8 +1,8 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import { Effect, Layer, Logger } from "effect";
+import { Effect, Layer } from "effect";
 
 import type { UserRepository } from "@node-effect/application";
-import { AppConfig } from "@node-effect/config";
+import { AppConfig, LoggingLive } from "@node-effect/config";
 import {
   DatabaseLive,
   PgClientLive,
@@ -30,7 +30,7 @@ const runWorker = <E>(program: Effect.Effect<void, E, WorkerRequirements>) => {
   const worker = program.pipe(
     Effect.provide(WorkerServicesLive),
     Effect.tapCause(reportWorkerFailure),
-    Effect.provide(Logger.layer([Logger.consoleJson])),
+    Effect.provide(LoggingLive),
   );
 
   NodeRuntime.runMain(worker, { disableErrorReporting: true });

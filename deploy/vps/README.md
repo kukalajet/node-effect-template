@@ -511,6 +511,9 @@ the API and worker start.
   minute, alerting by email or phone.
 - **Host:** an agent such as Grafana Alloy shipping host metrics and container
   logs. Alert on disk above 80%, memory above 90%, and container restart loops.
+- **Logs:** the API, worker and `migrate` write one JSON object per line (see
+  [Logs](../../README.md#logs)); an agent can alert on `"level":"ERROR"`. The
+  API logs every request except passing health probes, and a 5xx at Error.
 - **Backups:** a dead man's switch, such as Healthchecks.io, pinged through
   `HEARTBEAT_URL`. It alerts when no successful backup arrives within 26 hours.
 
@@ -532,6 +535,29 @@ tail releases.log
 container's root filesystem is read-only: pass files on standard input, as the
 full restore does, rather than copying them into the container.
 
+- **Find a request:** Cloudflare gives every request a ray ID, which the client
+  receives in the `cf-ray` response header.
+  `bin/compose logs api | grep <ray ID>` finds the request's access line, which
+  records it as `cfRay`, and `bin/compose logs api | grep <traceId>` then finds
+  every line the request logged. Ray IDs are not guaranteed to be unique, so
+  check the timestamp. `bin/compose logs` shows only the current containers'
+  output, rotated at the size `x-logging` in `compose.yml` sets: a release, a
+  rollback or a `LOG_LEVEL` change recreates them and discards what they wrote,
+  so search older lines in the log-shipping agent from
+  [Monitoring](#monitoring).
+- **Change `LOG_LEVEL`:** recreating a container discards its logs, so first
+  save what you may need:
+  `bin/compose logs --no-color --timestamps api worker > "logs-$(date -u +%Y%m%dT%H%M%SZ).txt"`.
+  Then set it in `.env` and recreate only the services it should change. `Debug`
+  adds a line for each worker pass, so `bin/compose up -d --wait worker` is
+  enough. Recreate the API too (`bin/compose up -d --wait worker api`) only when
+  it should log differently, at `Warn` for example: it is unavailable for a few
+  seconds and loses its log history. A release recreates both with the value in
+  `.env`. The names are case-sensitive (`All`, `Trace`, `Debug`, `Info`, `Warn`,
+  `Error`, `Fatal`, `None`): with any other value a process exits 1 after one
+  `Invalid logging configuration` line and restarts until it is fixed, so
+  `--wait` fails, and the next release's `migrate` fails before anything
+  restarts. Set it back to `Info` afterwards.
 - **Database tools:** from your machine, open a tunnel with
   `ssh -N -L 5432:127.0.0.1:5432 root@<server>`.
 - **Change `POSTGRES_PASSWORD`:** PostgreSQL reads `POSTGRES_PASSWORD` only when
@@ -579,7 +605,11 @@ Keep production private until every item passes.
 - [ ] `/health/live` and `/health/ready` pass through the tunnel hostname.
 - [ ] Stopping PostgreSQL briefly turns `/health/ready` into 503 while
       `/health/live` stays 200, and the worker restarts and recovers once the
-      database is back.
+      database is back: at the default level a healthy worker writes nothing, so
+      check that `bin/compose logs worker` shows no new `Worker failed` line and
+      that
+      `docker inspect --format '{{.RestartCount}}' $(bin/compose ps -q worker)`
+      stops rising.
 - [ ] After `reboot`, every service and the tunnel return without manual action.
 - [ ] The API and the worker connect as the runtime role: in `psql`,
       `select distinct usename from pg_stat_activity where application_name = 'node-effect-template'`

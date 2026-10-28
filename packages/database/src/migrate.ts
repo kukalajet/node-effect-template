@@ -3,11 +3,11 @@ import { join } from "node:path";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
-import { Cause, Effect, Layer, Logger } from "effect";
+import { Cause, Effect, Layer } from "effect";
 import { SqlError } from "effect/sql";
 
 import { redactCause } from "@node-effect/application";
-import { AppConfig, runtimeRoleConfig } from "@node-effect/config";
+import { AppConfig, LoggingLive, runtimeRoleConfig } from "@node-effect/config";
 
 import { diagnosticsFromCause } from "./error-diagnostics.ts";
 import { Database, DatabaseLive, MigrationPgClientLive } from "./postgres.ts";
@@ -75,7 +75,7 @@ const migration = Effect.gen(function* () {
 }).pipe(
   Effect.provide(MigrationDatabaseLive),
   Effect.tapCause(reportMigrationFailure),
-  Effect.provide(Logger.layer([Logger.consoleJson])),
+  Effect.provide(LoggingLive),
 );
 
 if (import.meta.main) {

@@ -31,14 +31,17 @@ The rules behind the diagram are more important than the exact folders:
 - `database` is an outbound adapter. It depends on application contracts and
   domain types, and owns PostgreSQL, Drizzle, tables, row mappings, live
   repository implementations, and the migration entry point.
-- `config` owns validated environment configuration. It contains no business or
-  transport logic.
+- `config` owns validated environment configuration, and `LoggingLive`, the
+  logging every entry point provides, which `LOG_LEVEL` configures. It lives
+  here because every executable, `migrate` included, already depends on
+  `config`, which depends only on Effect, and a package of its own would add a
+  manifest for one module. It contains no business or transport logic.
 - API route modules and worker job modules depend on `application` and `domain`,
   not on concrete database implementations.
 - An app's composition root (`apps/api/src/main.ts` with
   `request-services-live.ts`, and `apps/worker/src/worker-runtime.ts`) may
   import every layer it needs, because its job is to select implementations,
-  assemble the layer graph, configure logging, and launch the runtime.
+  assemble the layer graph, provide `LoggingLive`, and launch the runtime.
 
 pnpm enforces part of this. Each workspace package lists its own runtime
 dependencies in its `package.json` (`catalog:` versions and `workspace:*`
@@ -62,6 +65,8 @@ apps/
   api/src/
     main.ts                       # HTTP server, logging, runtime launch
     request-services-live.ts      # adapters behind the ports routes use
+    access-log.ts                 # one line per request, 5xx causes redacted
+    api-failure.ts                # reportApiFailure: a failure to start or serve
     app.ts                        # HttpApi routes, OpenAPI and Swagger UI
     api-contract.ts               # root HttpApi: every group, OpenAPI metadata
     api-schemas.ts                # public error envelope, shared responses
@@ -100,6 +105,7 @@ packages/
     mod.ts
     src/app-config.ts             # AppConfig, read by the API and the worker
     src/runtime-role-config.ts    # the runtime role's name and password, read by migrate only
+    src/logging.ts                # LoggingLive: JSON lines with trace ids, at LOG_LEVEL
   database/
     mod.ts
     src/postgres.ts               # PgClient and Database services and layers
@@ -147,6 +153,8 @@ today; ownership, rather than line count, decides the location.
 | Handler: calling ports and mapping their errors to responses               | `apps/api/src/<feature>/routes.ts`, provided in `apps/api/src/app.ts`                                    |
 | Public error response or schema shared by API groups                       | `apps/api/src/api-schemas.ts`                                                                            |
 | Mapping a shared failure, such as a persistence failure, to HTTP           | `apps/api/src/http-errors.ts`                                                                            |
+| What the API logs for each request                                         | `apps/api/src/access-log.ts`                                                                             |
+| Log format, level, or another logger                                       | `packages/config/src/logging.ts`                                                                         |
 | Adapter that the routes need                                               | `apps/api/src/request-services-live.ts`                                                                  |
 | Worker job, or one-shot work                                               | `apps/worker/src/jobs/`, added to the pass and the loops in `worker-work.ts`                             |
 | Port or adapter that a worker job needs                                    | `WorkerRequirements` and `WorkerServicesLive` in `worker-runtime.ts`                                     |
@@ -201,6 +209,12 @@ Keep the contract, implementation, composition, and test replacement separate:
    both read `AppConfig`, and one layer builds it once for both. Give an effect
    its layers in one `Effect.provide`, merged or provided to each other: the
    type check fails on two in a row (Effect's `multipleEffectProvide` rule).
+
+   Every entry point provides `LoggingLive` last, outside its failure reporter,
+   so the report is a JSON line too. Never provide a logger or a log level
+   inside the routes: HttpApi merges the context its handlers were built with
+   over each request's, so it would replace the entry point's for those
+   handlers.
 
 5. In a consumer test, replace the contract directly with `Layer.succeed` or
    `Layer.mock`. Route and job unit tests should not start PostgreSQL or import
@@ -293,7 +307,10 @@ reach handled-error logs. Database-wide extraction lives in
 to their repository and domain errors.
 
 HTTP handlers log only the error tag, operation, and diagnostics, and keep the
-response generic.
+response generic. The API's access log (`apps/api/src/access-log.ts`) replaces
+Effect's built-in HTTP logger, which logs each response's raw cause: it logs a
+5xx response's cause with `redactCause`, and no cause for a 4xx, whose cause can
+repeat the URL with its query string.
 
 The worker reports failures at its outer boundary, after configuration and
 persistence scopes finish. It logs a copy of the cause with every persistence
@@ -301,9 +318,15 @@ failure reduced to its tag, operation, and diagnostics. That includes one that
 arrives as a defect, which happens when a finalizer dies after the program
 failed. The original failure and exit code remain intact, including any cleanup
 defects. Unexpected errors keep their normal diagnostic details; this is not
-universal secret redaction. Interruption-only exits remain quiet. Keep this
-reporter paired with `runMain`'s `disableErrorReporting: true`, which prevents
-the runtime from also logging the raw cause.
+universal secret redaction. Interruption-only exits remain quiet. The API's
+`main.ts` reports a failure to start or serve the same way, with
+`reportApiFailure` from `api-failure.ts`. Keep each reporter paired with
+`runMain`'s `disableErrorReporting: true`, which prevents the runtime from also
+logging the raw cause, as text outside `LoggingLive`.
+`apps/api/src/test/main.test.ts` runs `main.ts` as a process to check that and
+that Effect's built-in HTTP logger stays off, since no module test can see
+either setting. `LoggingLive` reports its own failure, an invalid `LOG_LEVEL`,
+because nothing outside it can.
 
 `migrate.ts` follows the same policy with `redactCause`: a database failure is
 logged with its tag and diagnostics, including one that arrives as a defect
@@ -425,7 +448,10 @@ Module mocking fails lint.
   `packages/database/src/test/postgres.setup.ts` loads `.env` and fails clearly
   without `DATABASE_URL`. These files run one at a time.
 - **Logs** in tests are captured with a `Logger` layer when a test asserts on
-  them, for example that a secret never reaches a log line.
+  them, for example that a secret never reaches a log line. A test of the lines
+  production writes provides `LoggingLive` with a `TestConsole`, as
+  `access-log.test.ts` does. Outside tests, lint rejects Effect's
+  `Logger.console*` loggers: entry points provide `LoggingLive`.
 
 ## Public imports
 

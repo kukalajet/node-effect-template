@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Runs the built image against a real PostgreSQL in an isolated Compose project:
-# migrations, API and worker-once smoke checks, the API and worker connected as
-# the non-superuser runtime role, liveness that survives a database outage, the
-# fail-fast worker's restart and recovery, and data kept in the volume.
+# migrations, API and worker-once smoke checks, the API's access log, the API
+# and worker connected as the non-superuser runtime role, liveness that
+# survives a database outage, the fail-fast worker's restart and recovery, and
+# data kept in the volume.
 # Build the image first (`docker build -t node-effect-template:local .`).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -10,7 +11,8 @@ cd "$(dirname "$0")/.."
 export APP_IMAGE=${APP_IMAGE:-node-effect-template:local}
 export POSTGRES_DB=smoke_test POSTGRES_USER=smoke_test POSTGRES_PASSWORD=smoke_test
 export APP_DATABASE_USER=smoke_test_app APP_DATABASE_PASSWORD=smoke_test_app
-export API_PORT=0 COMPOSE_PROFILES='' WORKER_POLL_INTERVAL_MS=500
+# The worker logs each successful pass at Debug, which wait_for_worker_pass reads.
+export API_PORT=0 COMPOSE_PROFILES='' WORKER_POLL_INTERVAL_MS=500 LOG_LEVEL=Debug
 project="node-effect-smoke-${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-1}"
 compose=(docker compose --env-file .env.example -f docker-compose.yml --profile app -p "$project")
 
@@ -51,6 +53,19 @@ wait_for_worker_pass() {
   return 1
 }
 
+# Waits for an API log line that contains both strings. Docker collects a
+# container's output asynchronously, so a line can arrive after the response.
+wait_for_api_log() {
+  for _ in {1..10}; do
+    if "${compose[@]}" logs --no-color api | grep -F "$1" | grep -F "$2" > /dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for the API to log $1 with $2" >&2
+  return 1
+}
+
 # The daemon's clock, which also stamps the container logs.
 docker_time() {
   docker info --format '{{.SystemTime}}'
@@ -71,6 +86,24 @@ address=$("${compose[@]}" port api 8000)
 curl --fail --silent --show-error "http://$address/health/live"
 curl --fail --silent --show-error "http://$address/health/ready"
 "${compose[@]}" exec -T api node scripts/smoke-api.ts
+
+# The access log has a line per request, with the trace id and Cloudflare's ray
+# id but not the query string, and none for the passing health probes above,
+# smoke-api.ts's and the Compose healthcheck's. Effect's own HTTP logger, if it
+# came back, would log those probes under http.url and a 404's query string in
+# its cause.
+curl --fail --silent --show-error --output /dev/null \
+  --header 'cf-ray: smoke-ray-0000-SMK' "http://$address/users?limit=1&smoke=QUERY_SENTINEL"
+status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+  "http://$address/nope?smoke=QUERY_SENTINEL")
+test "$status" = 404
+wait_for_api_log '"cfRay":"smoke-ray-0000-SMK"' '"traceId":'
+wait_for_api_log '"path":"/nope"' '"status":404'
+if "${compose[@]}" logs --no-color api |
+  grep -E -e QUERY_SENTINEL -e '"(path|http\.url)":"/health' -e '"http\.status"' > /dev/null; then
+  echo "The access log has a query string, a passing health probe or Effect's own logger" >&2
+  exit 1
+fi
 "${compose[@]}" run --rm --no-deps worker-once
 "${compose[@]}" run --rm --no-deps migrate
 
@@ -97,6 +130,7 @@ test "$(psql_query "select count(*) from pg_auth_members
 curl --fail --silent --show-error "http://$address/health/live"
 status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "http://$address/health/ready")
 test "$status" = 503
+wait_for_api_log '"path":"/health/ready","status":503' '"level":"ERROR"'
 wait_for_worker_restart
 
 # Also prove that a newly started API can serve liveness without PostgreSQL.

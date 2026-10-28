@@ -32,17 +32,19 @@ const processWorkerWorkPass = Effect.fn("Worker.processWorkerWorkPass")(
 // Each job polls on its own loop, so a slow job never delays another. A loop
 // waits `intervalMs` after a pass finishes, so passes of one job never overlap.
 // The first failure interrupts every loop and fails the worker; the process
-// supervisor (Compose `restart: unless-stopped`) starts it again.
-const pollWorkerWork = Effect.fn("Worker.pollWorkerWork")(
-  (options: { readonly intervalMs: number; readonly passTimeoutMs: number }) =>
-    Effect.all(
-      [
-        sampleUsers(options.passTimeoutMs).pipe(
-          Effect.repeat(Schedule.spaced(options.intervalMs)),
-        ),
-      ],
-      { concurrency: "unbounded" },
-    ).pipe(Effect.asVoid),
-);
+// supervisor (Compose `restart: unless-stopped`) starts it again. The loops run
+// outside any span, so each pass starts a trace of its own.
+const pollWorkerWork = (options: {
+  readonly intervalMs: number;
+  readonly passTimeoutMs: number;
+}) =>
+  Effect.all(
+    [
+      sampleUsers(options.passTimeoutMs).pipe(
+        Effect.repeat(Schedule.spaced(options.intervalMs)),
+      ),
+    ],
+    { concurrency: "unbounded" },
+  ).pipe(Effect.asVoid);
 
 export { pollWorkerWork, processWorkerWorkPass };

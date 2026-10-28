@@ -68,6 +68,7 @@ The API listens on `http://127.0.0.1:8000`; open `/docs` for Swagger UI.
 | `API_PORT`                                          | `8000`             | API; Compose also publishes the container API on it                       |
 | `WORKER_POLL_INTERVAL_MS`                           | `5000`             | Worker: the pause after each pass of a job                                |
 | `WORKER_PASS_TIMEOUT_MS`                            | `60000`            | Worker: a pass of a job that runs longer fails the worker                 |
+| `LOG_LEVEL`                                         | `Info`             | API, worker and migrations: the lowest level logged ([Logs](#logs))       |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | see `.env.example` | Compose's PostgreSQL, and the database URL Compose gives `migrate`        |
 | `APP_DATABASE_USER`, `APP_DATABASE_PASSWORD`        | see `.env.example` | `migrate`, which creates this role; Compose's API and worker log in as it |
 | `POSTGRES_PORT`                                     | `5432`             | The loopback port Compose publishes PostgreSQL on                         |
@@ -132,22 +133,122 @@ waiting 5 seconds for a lock.
 
 The worker runs each job on its own loop, waiting `WORKER_POLL_INTERVAL_MS`
 after each pass. The example job reads up to five users and logs how many it
-found. The first failure in any loop stops the worker with exit code 1, and the
-process supervisor (Compose's `restart: unless-stopped`) starts it again. A pass
-that runs longer than `WORKER_PASS_TIMEOUT_MS` is interrupted, so its open
-transaction never commits, and fails the worker the same way with a
+found, at Debug. The first failure in any loop stops the worker with exit code
+1, and the process supervisor (Compose's `restart: unless-stopped`) starts it
+again. A pass that runs longer than `WORKER_PASS_TIMEOUT_MS` is interrupted, so
+its open transaction never commits, and fails the worker the same way with a
 `TimeoutError` naming the job; split work that needs longer into several passes.
 If the pass is waiting on a database that has stopped answering, the driver
 first takes up to 5 seconds to cancel the query, and SIGTERM waits as long. The
 polling example provides no claims, leases, checkpoints or retries.
 
-For one pass of every job, then exit:
+For one pass of every job, then exit. At the default level a pass that succeeds
+writes nothing and exits 0, so these show the job's line with `LOG_LEVEL=Debug`,
+which takes precedence over `.env`:
 
 ```sh
-pnpm sample:worker
+LOG_LEVEL=Debug pnpm sample:worker
 # Or, with the container image built:
-docker compose run --rm worker-once
+LOG_LEVEL=Debug docker compose run --rm worker-once
 ```
+
+### Logs
+
+The API, the worker and `migrate` write one JSON object per line to standard
+output, through `LoggingLive` in `packages/config/src/logging.ts`. This is the
+access line of an API request, spread over several lines here:
+
+```json
+{
+  "message": "Sent HTTP response",
+  "level": "INFO",
+  "timestamp": "2026-10-28T07:41:29.080Z",
+  "annotations": {
+    "method": "GET",
+    "path": "/users",
+    "status": 200,
+    "durationMs": 1,
+    "cfRay": "8f1d2c3b4a5e6f70-FRA"
+  },
+  "spans": {},
+  "fiberId": "#48",
+  "traceId": "be603e828a153116646a9351644e029b",
+  "spanId": "7c2538f6041fa617"
+}
+```
+
+Every line has Effect's JSON fields: `message`, `level`, `timestamp`, `cause`
+(only when there is one), `annotations`, `spans` and `fiberId`. While a span is
+active, as during every API request and worker pass, it also has `traceId` and
+`spanId`.
+
+`LOG_LEVEL` sets the lowest level logged: `Info` by default, or `All`, `Trace`,
+`Debug`, `Warn`, `Error`, `Fatal` or `None`, spelled exactly so. An empty value
+means the default. `Debug` adds the worker job's line for each pass; `Fatal` and
+`None` also silence failure reports. Any other value stops the process at
+startup with exit code 1 and one `Invalid logging configuration` line that lists
+the accepted values.
+
+The API logs one access line per request, `Sent HTTP response`, after it sends
+the response. Its annotations are `method`, `path`, `status`, `durationMs`, and
+`cfRay` when the request carries Cloudflare's `cf-ray` header with a plain
+value: up to 64 letters, digits and hyphens. Any client can send the header, so
+another value is left out rather than logged.
+
+- A 5xx response is logged at Error, anything else at Info. Clients and scanners
+  cause 4xx responses all day, and none of them is a fault of the server.
+- Only a 5xx line has a `cause`: the failure or defect behind it, with a
+  persistence failure that is itself the failure or a defect reduced to its tag,
+  operation and diagnostics, as the worker and `migrate` report theirs. Other
+  defects keep their message and stack. A handled database failure
+  (`500 DATABASE_ERROR`, `503 DATABASE_UNAVAILABLE`) has no cause on the access
+  line; the handler logs its diagnostics on a line of its own with the same
+  `traceId` and `spanId`.
+- The path is logged without its query string or fragment, which can carry
+  tokens or personal data. The client's address (behind the tunnel,
+  cloudflared's), user agent and other headers are not logged either. Cloudflare
+  may have them for a ray ID, depending on the plan: every plan can look up
+  sampled security events, but a log of every request needs the Log Explorer
+  add-on or Enterprise.
+- `/health`, `/health/live` and `/health/ready` are logged only when they answer
+  4xx or 5xx. The healthcheck calls liveness every 5 seconds in the local
+  `docker-compose.yml` and every 10 in `deploy/vps/compose.yml`, 8,640 times a
+  day, and `bin/release` polls readiness during a release.
+
+A failure that stops a process is one Error line, `API failed`, `Worker failed`
+or `Database migration failed`, with database failures reduced the same way.
+
+**Following a request.** Each request runs in a span of its own, in a new trace
+unless the request names one, so its access line and every line its handlers log
+share a `traceId`. A client names the trace with a W3C `traceparent` or B3
+header, so the trace ID is neither secret nor unique. In production the ray ID
+is the one to start from: Cloudflare assigns it at the edge and returns it to
+the client in the `cf-ray` response header. Ray IDs are not guaranteed to be
+unique either, so check the line's timestamp. Find the request by its ray ID,
+then everything it logged by its trace ID:
+
+```sh
+docker compose logs api | grep 8f1d2c3b4a5e6f70-FRA
+docker compose logs api | grep be603e828a153116646a9351644e029b
+```
+
+Each worker pass runs in a trace of its own too.
+
+**Before adding a trace exporter or error reporter.** Effect records spans even
+without an exporter, and their exits hold raw causes: a server span whose
+request failed with a 5xx ends with the cause, and every `Effect.fn` span, such
+as `UserRepository.list`, with its error. OpenTelemetry exports those as
+`exception` events whose `exception.message` and `exception.stacktrace` include
+the whole `[cause]:` chain, so SQL, parameters and stored values would reach the
+tracing backend. HttpApi and the HTTP server also pass raw causes to any
+`ErrorReporter`. Log lines become span events too, but they carry the cause the
+line logged, which the app has already reduced. The server span also records
+what the access log leaves out on purpose: the full URL with its query string
+(`url.full`, `url.query`), the user agent (`user_agent.original`) and the
+client's address (`client.address`); Effect redacts only a few signing
+parameters (`UrlParams.CurrentRedactedNames`). Reduce persistence failures with
+`redactCause`, and drop or redact those attributes, before anything leaves the
+process.
 
 ## Scripts
 
@@ -330,6 +431,9 @@ docker compose --profile app up -d --build --wait
 docker compose logs -f api worker
 ```
 
+The worker logs its passes at Debug; set `LOG_LEVEL=Debug` in `.env`, or prefix
+the `up` command with it, to see them.
+
 The image build runs `pnpm check`. Compose waits for PostgreSQL, runs `migrate`,
 then starts the API and worker. `migrate` gets a database URL built from
 `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB`, and the API and worker
@@ -379,13 +483,16 @@ pnpm smoke:docker
 `scripts/smoke-docker.sh` starts the image in an isolated Compose project with a
 fresh database. It checks liveness and readiness, runs `scripts/smoke-api.ts`
 inside the API container (every endpoint, error status and the OpenAPI and docs
-pages), and runs `worker-once` and `migrate` again. It checks that the worker
-has completed a pass without restarting and that the API and worker are
-connected as the runtime role, not a superuser, then stops PostgreSQL to check
-that liveness stays up, readiness returns 503 and the worker restarts. Finally
-it restores the database and checks that the data and migration history survived
-and that the worker completes a pass again. It removes only its own containers
-and volume.
+pages), and runs `worker-once` and `migrate` again. It checks that a request's
+access line has its `cf-ray` and a trace ID but not its query string, and that
+neither passing health probes nor Effect's own HTTP logger's lines appear. It
+checks that the worker has completed a pass without restarting and that the API
+and worker are connected as the runtime role, not a superuser, then stops
+PostgreSQL to check that liveness stays up, readiness returns 503 and is logged
+at Error, and the worker restarts. Finally it restores the database and checks
+that the data and migration history survived and that the worker completes a
+pass again. It runs the stack with `LOG_LEVEL=Debug`, because it reads the
+worker's line for each pass. It removes only its own containers and volume.
 
 `scripts/smoke-api.ts` creates `ada@example.com` and expects to find her alone,
 so run it only against a freshly migrated database, never production.
@@ -640,6 +747,8 @@ with a new base image digest.
   directly.
 - `pnpm install` prints "Agent skills awaiting approval: drizzle-kit". It is a
   pnpm 12 notice; `pnpm approve` reviews it, and nothing else depends on it.
+- Spans hold unredacted causes and full URLs. Read [Logs](#logs) before adding a
+  trace exporter or an `ErrorReporter`.
 - A failed migration logs its safe diagnostics, such as the SQLSTATE code
   (`42P07`), but not PostgreSQL's message, which can contain stored values. Look
   up the code, or run the migration's SQL by hand against a local database.

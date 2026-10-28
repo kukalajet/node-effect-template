@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Logger } from "effect";
+import { Effect, Layer, Logger, References } from "effect";
 
 import { UserRepository } from "@node-effect/application";
 
@@ -32,13 +32,18 @@ describe("sampleUsersPass", () => {
       });
 
       yield* sampleUsersPass().pipe(
-        Effect.provide([repository, Logger.layer([logger])]),
+        Effect.provide([
+          repository,
+          Logger.layer([logger]),
+          Layer.succeed(References.MinimumLogLevel, "Debug"),
+        ]),
       );
 
       assert.deepStrictEqual(limits, [5]);
       assert.lengthOf(lines, 1);
       const log = JSON.parse(lines.join(""));
       assert.strictEqual(log.message, "Worker user sample loaded");
+      assert.strictEqual(log.level, "DEBUG");
 
       assert.deepStrictEqual(log.annotations, {
         service: "worker",

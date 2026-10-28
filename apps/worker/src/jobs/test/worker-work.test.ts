@@ -63,6 +63,41 @@ describe("pollWorkerWork", () => {
     }).pipe(Effect.provide(Logger.layer([]))),
   );
 
+  it.effect("starts a trace of its own for each pass", () =>
+    Effect.gen(function* () {
+      const firstPass = yield* Deferred.make<void>();
+      const secondPass = yield* Deferred.make<void>();
+      const traceIds: Array<string> = [];
+
+      const repository = listingWith(() =>
+        Effect.gen(function* () {
+          const span = yield* Effect.orDie(Effect.currentSpan);
+
+          traceIds.push(span.traceId);
+
+          yield* Deferred.succeed(
+            traceIds.length === 1 ? firstPass : secondPass,
+            undefined,
+          );
+
+          return [];
+        }),
+      );
+
+      yield* pollWorkerWork(timings).pipe(
+        Effect.provide(repository),
+        Effect.forkScoped,
+      );
+
+      yield* Deferred.await(firstPass);
+      yield* TestClock.adjust(timings.intervalMs);
+      yield* Deferred.await(secondPass);
+
+      assert.lengthOf(traceIds, 2);
+      assert.notStrictEqual(traceIds[0], traceIds[1]);
+    }).pipe(Effect.provide(Logger.layer([]))),
+  );
+
   it.effect("fails with the first failed pass and polls no more", () =>
     Effect.gen(function* () {
       let calls = 0;

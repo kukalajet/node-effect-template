@@ -39,6 +39,7 @@ x-app: &app
     API_PORT: "8000"
     WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-5000}
     WORKER_PASS_TIMEOUT_MS: ${WORKER_PASS_TIMEOUT_MS:-60000}
+    LOG_LEVEL: ${LOG_LEVEL:-Info}
 
 # Memory limits are ceilings, not reservations, so one runaway process cannot
 # take the database down with it. Size them to the host.
