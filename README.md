@@ -116,13 +116,17 @@ session left idle inside a transaction for 30 seconds. A query waits at most 5
 seconds for a pooled connection. PostgreSQL enforces its own limits, so none of
 them fires when the server stops answering; each repository call therefore also
 gives up by itself after the pool wait, the statement timeout and 2 seconds more
-(17 seconds by default), and the driver then takes up to 5 seconds to cancel the
-query. A statement, lock or pool timeout, or a call that gives up, is a failed
-database operation: `500 DATABASE_ERROR`, or `503` for readiness, which gives up
-after 5 seconds, logged with its safe diagnostics. A session ended for idling
-inside a transaction takes its connection with it, so that transaction fails
-with a defect instead, which the API answers with an empty 500 and the worker
-with a restart (see `packages/database/src/postgres.ts`).
+(17 seconds by default), and readiness after 5 seconds. The driver then waits up
+to 5 seconds more for the server to confirm it cancelled the query, so a request
+already sent on an open connection to a server that stopped answering fails
+after 22 seconds by default, or 10 for readiness. That connection is then
+dropped, and a request that has to open a new one fails within 5 seconds, when
+connecting gives up. A statement, lock or pool timeout, or a call that gives up,
+is a failed database operation: `500 DATABASE_ERROR`, or `503` for readiness,
+logged with its safe diagnostics. A session ended for idling inside a
+transaction takes its connection with it, so that transaction fails with a
+defect instead, which the API answers with an empty 500 and the worker with a
+restart (see `packages/database/src/postgres.ts`).
 
 `DATABASE_STATEMENT_TIMEOUT_MS` accepts 1 to 2147483647, PostgreSQL's limit.
 Below 8000, a statement waiting for a lock is cancelled as a statement timeout
