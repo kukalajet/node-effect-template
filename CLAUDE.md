@@ -23,7 +23,8 @@ Lint (`.oxlintrc.json`) also requires:
 - No module mocking: replace a service with `Layer.succeed` or `Layer.mock`.
 - No `console`, `process.env` or `Effect.run*` in `apps/` or `packages/` outside
   tests: log with Effect, read `AppConfig`, and run effects only with
-  `NodeRuntime.runMain` in an entry point.
+  `NodeRuntime.runMain` in an entry point, which provides `LoggingLive` from
+  `@node-effect/config` (JSON lines at `LOG_LEVEL`).
 - No `@node-effect/database` or `effect/sql` imports in any folder under
   `apps/*/src/`, tests included. Provide adapters in the composition roots
   directly in `src/` (`request-services-live.ts`, `worker-runtime.ts`).
@@ -39,3 +40,10 @@ allowed.
 lint-fixes. `pnpm check` includes `pnpm db:verify`, so a schema change needs its
 generated migration (`pnpm db:generate`). Never edit the migrations in
 `drizzle/` or the vendored `tools/oxlint/anti-slop/`.
+
+`pnpm check` type-checks with `@effect/tsgo`'s build of `tsc`, so Effect's
+diagnostics fail it like type errors: an Effect that is never run, `yield` where
+`yield*` is meant, an Effect returned from a plain Vitest `it`, and two
+`Effect.provide` calls in a row. Fix the code; to accept a finding on one line,
+put `// @effect-diagnostics-next-line <rule>:off` above it with a comment saying
+why.
