@@ -27,8 +27,10 @@ sha=${BASH_REMATCH[1]}
 digest=${BASH_REMATCH[3]}
 
 cd "$(dirname "$0")/.."
+# bin/monitor holds the lock shared for the few seconds of its check, so wait
+# that long; another release holds it for minutes.
 exec 9> release.lock
-flock -n 9 || {
+flock -w 60 9 || {
   echo "Another release is running" >&2
   exit 1
 }

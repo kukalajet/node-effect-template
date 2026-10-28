@@ -403,12 +403,12 @@ and the worker never need the password. Native development uses the owner's URL
 for everything. A table outside `public` needs grants of its own in its
 migration.
 
-`deploy/vps/` holds the production Compose project and its release and backup
-scripts. A release runs `migrate` once, as a separate step, and restarts the API
-and worker only after it succeeds. Database changes must tolerate the previous
-application version, which keeps running until the restart and is what a
-rollback returns to: add columns and tables first, and remove old ones in a
-later release.
+`deploy/vps/` holds the production Compose project and its release, backup,
+backup-check and monitoring scripts. A release runs `migrate` once, as a
+separate step, and restarts the API and worker only after it succeeds. Database
+changes must tolerate the previous application version, which keeps running
+until the restart and is what a rollback returns to: add columns and tables
+first, and remove old ones in a later release.
 
 ## Testing
 

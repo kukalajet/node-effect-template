@@ -565,8 +565,10 @@ current vulnerability database on each run.
 
 Production is one x86-64 Linux VPS running the Docker Compose project in
 [`deploy/vps/`](./deploy/vps/). Cloudflare Tunnel is the only ingress, and
-nightly encrypted backups go to S3-compatible storage with restic. There is one
-environment; local development and CI are the checks before production.
+nightly encrypted backups go to S3-compatible storage with restic. A weekly
+check restores the latest backup, and the backup, that check and a check of the
+host and services every 5 minutes each report to a dead man's switch. There is
+one environment; local development and CI are the checks before production.
 
 Every push to `main` starts
 [the Release workflow](./.github/workflows/release.yml), which also runs on
@@ -581,7 +583,7 @@ label, migrates once, restarts the API, worker and tunnel, and checks that the
 API is ready, the tunnel is connected and the worker and tunnel stay up. When a
 check fails, it restores the previous release on its own and fails. See
 [the VPS guide](./deploy/vps/README.md) for server setup, secrets, rollback,
-backups, restore drills and monitoring.
+backups, the weekly restore check and alerting.
 
 The `publish` and `deploy` jobs run only when the repository variable
 `PRODUCTION_HOST` is set, so until the server exists, pushes to `main` run CI
