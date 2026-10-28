@@ -138,19 +138,24 @@ describe("the Vite+ toolchain", () => {
 // matched the build to the installed nightly's commit.
 const nightlyDatePattern = /^(?<release>\d+\.\d+\.\d+-dev)\.\d+\.\d+$/;
 
+const typescript = root.devDependencies?.["typescript"] ?? "(none)";
+const effectTsgo = root.devDependencies?.["@effect/tsgo"] ?? "(none)";
+
+const printedTypescript =
+  nightlyDatePattern.exec(typescript)?.groups?.["release"] ?? typescript;
+
+const effectTscVersion = `Version ${printedTypescript}+effect-tsgo.${effectTsgo}`;
+
+// Runs `node <script> --version`.
+const printVersion = (script: string) =>
+  spawnSync(process.execPath, [script, "--version"], {
+    cwd: repositoryUrl,
+    encoding: "utf8",
+  });
+
 describe("the type check", () => {
   it("runs the Effect tsc built from the pinned TypeScript", () => {
-    const typescript = root.devDependencies?.["typescript"] ?? "(none)";
-    const effectTsgo = root.devDependencies?.["@effect/tsgo"] ?? "(none)";
-
-    const printedTypescript =
-      nightlyDatePattern.exec(typescript)?.groups?.["release"] ?? typescript;
-
-    const { stdout, stderr } = spawnSync(
-      process.execPath,
-      ["scripts/typecheck.ts", "--version"],
-      { cwd: repositoryUrl, encoding: "utf8" },
-    );
+    const { stdout, stderr } = printVersion("scripts/typecheck.ts");
 
     const advice = [
       `pnpm typecheck must run the tsc that @effect/tsgo ${effectTsgo} builds from typescript ${typescript}.`,
@@ -158,10 +163,18 @@ describe("the type check", () => {
       `scripts/typecheck.ts stderr: ${stderr.trim() || "(empty)"}`,
     ];
 
+    assert.strictEqual(stdout.trim(), effectTscVersion, advice.join("\n"));
+  });
+
+  // Zed and VS Code run the installed `typescript` package's tsc, which
+  // `prepare` replaces with the same Effect build (`effect-tsgo patch`).
+  it("is the tsc that editors run", () => {
+    const { stdout } = printVersion("node_modules/typescript/bin/tsc");
+
     assert.strictEqual(
       stdout.trim(),
-      `Version ${printedTypescript}+effect-tsgo.${effectTsgo}`,
-      advice.join("\n"),
+      effectTscVersion,
+      "Editors would show plain TypeScript's errors, without Effect's. pnpm install skips `prepare` when nothing changed: run pnpm prepare.",
     );
   });
 });

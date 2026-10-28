@@ -332,9 +332,9 @@ process.
   comment that says why; an unused directive fails the check.
   `scripts/typecheck.test.ts` type-checks a fixture with each of the three
   mistakes above and fails unless each is an error, so a renamed plugin entry or
-  an option that turns them off cannot pass silently. Editors do not show these
-  diagnostics yet (see [Editor](#editor)).
-- **Git hooks.** `pnpm install` runs `prepare` (`vp config --no-agent`), which
+  an option that turns them off cannot pass silently. Editors show the same
+  errors (see [Editor](#editor)).
+- **Git hooks.** `pnpm install` runs `prepare`, whose `vp config --no-agent`
   points Git's `core.hooksPath` at the dispatcher in `.vite-hooks/_`. The hooks
   themselves are `.vite-hooks/pre-commit` and `.vite-hooks/pre-push`. Before a
   commit, `vp staged` formats and lints the staged files; before a push, the
@@ -592,12 +592,29 @@ trigger back (see above).
 
 ## Editor
 
-`.zed/settings.json` configures Zed with vtsls, the oxlint language server
-(fixes as you type) and oxfmt (format on save). `.zed/debug.json` has debug
-configurations for the API, the worker and the current Vitest file. All three
-use the pinned Node in `node_modules/.bin/node`; the API and worker load `.env`.
-vtsls shows TypeScript's errors but not Effect's diagnostics, which only
-`pnpm typecheck` reports.
+Editors type-check with the project's own TypeScript, as the Effect build that
+`pnpm typecheck` runs, so they show the errors the check reports, Effect's
+diagnostics included, and no others. `prepare`, which `pnpm install` runs, has
+`effect-tsgo patch` put that build in place of the installed `typescript`
+package's `tsc`, keeping the original as `tsc.original`. When `@effect/tsgo` has
+no build for the installed TypeScript, as after updating only one of the two,
+the patch fails `pnpm install` and lists the versions it supports. pnpm skips
+`prepare` when nothing changed, so in a clone installed before this setup, or
+after `pnpm install --ignore-scripts`, run `pnpm prepare` once; the toolchain
+test fails until you do.
+
+- **Zed:** install the `TypeScript Language Server` (`tsgo`) and `oxc`
+  extensions; project settings cannot install extensions. `.zed/settings.json`
+  runs `node_modules/.bin/tsc --lsp --stdio` as the tsgo extension's server in
+  place of vtsls, and Zed asks you to trust the project before it starts a
+  server from it. The oxlint language server fixes as you type and oxfmt formats
+  on save. `.zed/debug.json` has debug configurations for the API, the worker
+  and the current Vitest file. All three use the pinned Node in
+  `node_modules/.bin/node`; the API and worker load `.env`.
+- **VS Code:** install the recommended extensions, TypeScript 7 and Oxc.
+  `.vscode/settings.json` points TypeScript 7 at `node_modules/typescript`, as
+  `effect-tsgo setup --vscode` does, and formats with oxfmt and then applies
+  oxlint's safe fixes on save.
 
 ## Exact dependency policy
 

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare": "vp config --no-agent",
+    "prepare": "vp config --no-agent && effect-tsgo patch --typescript --no-oxlint",
     "init": "node scripts/init-template.ts",
     "dev:api": "node --watch --env-file=.env apps/api/src/main.ts",
     "start:api": "node --env-file=.env apps/api/src/main.ts",

@@ -1,5 +1,14 @@
 {
   "lsp": {
+    // The tsgo extension's server would download its own TypeScript; run the
+    // project's instead. `prepare` patches it into the Effect build that
+    // `pnpm typecheck` runs, so Zed shows the same errors as the check.
+    "typescript-ls": {
+      "binary": {
+        "path": "node_modules/.bin/tsc",
+        "arguments": ["--lsp", "--stdio"]
+      }
+    },
     "oxlint": {
       "initialization_options": {
         "settings": {
@@ -21,9 +30,10 @@
   "languages": {
     "TypeScript": {
       "language_servers": [
-        "vtsls",
+        "typescript-ls",
         "oxlint",
         "oxfmt",
+        "!vtsls",
         "!typescript-language-server",
         "!deno",
         "!eslint"
@@ -37,9 +47,10 @@
     },
     "JavaScript": {
       "language_servers": [
-        "vtsls",
+        "typescript-ls",
         "oxlint",
         "oxfmt",
+        "!vtsls",
         "!typescript-language-server",
         "!deno",
         "!eslint"
