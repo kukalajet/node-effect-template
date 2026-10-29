@@ -3,20 +3,6 @@ import { HttpServerRequest } from "effect/http";
 
 import { BadRequestResponse, PayloadTooLargeResponse } from "./api-schemas.ts";
 
-const invalidRequestBody = BadRequestResponse.make({
-  error: {
-    code: "INVALID_REQUEST",
-    message: "The request payload is invalid",
-  },
-});
-
-const requestBodyTooLarge = PayloadTooLargeResponse.make({
-  error: {
-    code: "PAYLOAD_TOO_LARGE",
-    message: "The request payload is too large",
-  },
-});
-
 type CollectedBody = {
   readonly chunks: Array<Uint8Array>;
   readonly byteLength: number;
@@ -33,7 +19,9 @@ const collectBody = (maxBytes: number) =>
         (): CollectedBody => ({ chunks: [], byteLength: 0 }),
         (body, chunk) => {
           const byteLength = body.byteLength + chunk.byteLength;
-          if (byteLength > maxBytes) return Effect.fail(requestBodyTooLarge);
+          if (byteLength > maxBytes) {
+            return Effect.fail(PayloadTooLargeResponse.body);
+          }
 
           body.chunks.push(chunk);
 
@@ -77,8 +65,8 @@ const jsonBody = <A, RD>(
       }),
     ),
     Effect.catchTags({
-      HttpServerError: () => Effect.fail(invalidRequestBody),
-      SchemaError: () => Effect.fail(invalidRequestBody),
+      HttpServerError: () => Effect.fail(BadRequestResponse.body),
+      SchemaError: () => Effect.fail(BadRequestResponse.body),
     }),
   );
 

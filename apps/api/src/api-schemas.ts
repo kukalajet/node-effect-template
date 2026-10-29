@@ -2,18 +2,23 @@ import { Schema } from "effect";
 import { HttpApiSchema } from "effect/http-api";
 
 // Every public error has the same envelope. The code and message are literals,
-// so the OpenAPI document lists exactly what a client can receive.
+// so the OpenAPI document lists exactly what a client can receive. `schema`
+// goes in the endpoint's contract, and `body`, its only value, is what a
+// handler fails with, so the code and message are written once.
 const publicError = <const Code extends string, const Message extends string>(
   status: number,
   code: Code,
   message: Message,
-) =>
-  Schema.Struct({
+) => {
+  const schema = Schema.Struct({
     error: Schema.Struct({
       code: Schema.Literal(code),
       message: Schema.Literal(message),
     }),
   }).pipe(HttpApiSchema.status(status));
+
+  return { schema, body: schema.make({ error: { code, message } }) };
+};
 
 const BadRequestResponse = publicError(
   400,

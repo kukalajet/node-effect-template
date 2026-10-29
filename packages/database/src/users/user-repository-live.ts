@@ -2,15 +2,14 @@ import { desc, eq } from "drizzle-orm";
 import { Effect, Layer, Option, Schema } from "effect";
 
 import { UserRepository, UserRepositoryError } from "@node-effect/application";
-import { AppConfig } from "@node-effect/config";
 import {
   type CreateUser,
   type UserIdType,
   UserNotFound,
 } from "@node-effect/domain";
 
-import { databaseCalls } from "../database-call.ts";
-import { Database, databaseCallTimeout } from "../postgres.ts";
+import { repositoryCalls } from "../database-call.ts";
+import { Database } from "../postgres.ts";
 
 import { UserRowSchema, users } from "./schema.ts";
 import { userEmailConflict } from "./user-repository-error.ts";
@@ -20,12 +19,7 @@ const InsertedUserRow = Schema.Tuple([UserRowSchema]);
 
 const makeUserRepository = Effect.gen(function* () {
   const database = yield* Database;
-  const config = yield* AppConfig;
-
-  const calls = databaseCalls(
-    UserRepositoryError,
-    databaseCallTimeout(config.databaseStatementTimeoutMs),
-  );
+  const calls = yield* repositoryCalls(UserRepositoryError);
 
   const insert = Effect.fn("UserRepository.insert")(function* (
     input: CreateUser,
