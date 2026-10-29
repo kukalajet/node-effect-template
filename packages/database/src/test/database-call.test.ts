@@ -70,18 +70,35 @@ describe("databaseCalls", () => {
     }),
   );
 
-  it.effect("failAs reports a later step, such as decoding, the same way", () =>
+  it.effect("rows decodes the result with its schema", () =>
     Effect.gen(function* () {
-      const failure = yield* Schema.decodeUnknownEffect(
-        Schema.Struct({ email: Schema.String }),
-      )({}).pipe(calls.failAs("insert"), Effect.flip);
+      const result = yield* calls.rows(
+        "list",
+        Effect.succeed([{ email: "ada@example.com" }]),
+        Schema.Array(Schema.Struct({ email: Schema.String })),
+      );
+
+      assert.deepStrictEqual(result, [{ email: "ada@example.com" }]);
+    }),
+  );
+
+  it.effect("rows reports invalid rows as a failure, never refined", () =>
+    Effect.gen(function* () {
+      const failure = yield* calls
+        .rows(
+          "insert",
+          Effect.succeed([{}]),
+          Schema.Tuple([Schema.Struct({ email: Schema.String })]),
+          () => new UserAlreadyExists({ email: "ada@example.com" }),
+        )
+        .pipe(Effect.flip);
 
       assert.instanceOf(failure, UserRepositoryError);
       assert.strictEqual(failure.operation, "insert");
 
       assert.deepStrictEqual(failure.diagnostics, {
         reason: "SchemaError",
-        validationPaths: ["email"],
+        validationPaths: ["0.email"],
       });
     }),
   );

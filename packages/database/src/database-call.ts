@@ -1,4 +1,4 @@
-import { type Duration, Effect } from "effect";
+import { type Duration, Effect, Schema } from "effect";
 
 import { diagnosticsFromCause } from "./error-diagnostics.ts";
 
@@ -24,13 +24,6 @@ const databaseCalls = <Operation extends string, Failure>(
       diagnostics: diagnosticsFromCause(cause),
     });
 
-  // Fails as `Failure` for `operation`, for a step after the query, such as
-  // decoding its rows.
-  const failAs =
-    (operation: Operation) =>
-    <A, R>(effect: Effect.Effect<A, unknown, R>) =>
-      effect.pipe(Effect.mapError((cause) => toFailure(operation, cause)));
-
   // `refine` turns a cause that means a domain outcome, such as a unique
   // violation on a known constraint, into that domain error; every other cause,
   // a timeout included, is a persistence failure.
@@ -46,7 +39,33 @@ const databaseCalls = <Operation extends string, Failure>(
       ),
     );
 
-  return { run, failAs };
+  // Runs `query` like `run`, then decodes the rows it returns with `schema`,
+  // so stored data that is no longer valid fails as a persistence failure for
+  // `operation`, never as a domain error. `schema` describes the whole result:
+  // `Schema.Array(RowSchema)` for any number of rows, or
+  // `Schema.Tuple([RowSchema])` for exactly one.
+  const rows = <S extends Schema.Constraint, R, DomainError = never>(
+    operation: Operation,
+    query: Effect.Effect<unknown, unknown, R>,
+    schema: S,
+    refine?: (cause: unknown) => DomainError | undefined,
+  ): Effect.Effect<
+    S["Type"],
+    Failure | DomainError,
+    R | S["DecodingServices"]
+  > => {
+    const decode = Schema.decodeUnknownEffect(schema);
+
+    return run(operation, query, refine).pipe(
+      Effect.flatMap((result) =>
+        decode(result).pipe(
+          Effect.mapError((cause) => toFailure(operation, cause)),
+        ),
+      ),
+    );
+  };
+
+  return { run, rows };
 };
 
 export { databaseCalls };

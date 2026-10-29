@@ -184,7 +184,7 @@ describe("UserRepositoryLive on PostgreSQL", () => {
 
       assert.deepStrictEqual(error.diagnostics, {
         reason: "SchemaError",
-        validationPaths: ["email"],
+        validationPaths: ["0.email"],
       });
     }).pipe(withUserDatabase),
   );
