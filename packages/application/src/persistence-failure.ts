@@ -69,21 +69,36 @@ const redactCause = <A>(
 const redactPersistenceFailures = (cause: Cause.Cause<unknown>) =>
   redactCause(cause, isPersistenceFailure, persistenceFailureReport);
 
-// An entry point's failure reporter: logs `message` and the cause once, with
-// persistence failures redacted. Interruption is a normal shutdown, not a
-// failure, so it logs nothing.
-const reportFailure = (message: string) => (cause: Cause.Cause<unknown>) => {
-  if (Cause.hasInterruptsOnly(cause)) return Effect.void;
-
-  return Effect.logError(message, redactPersistenceFailures(cause));
+// Failures an entry point holds besides persistence failures whose details are
+// not safe to log, such as the raw database errors `migrate` sees.
+type Redaction<A> = {
+  readonly isSensitive: (value: unknown) => value is A;
+  readonly report: (value: A) => unknown;
 };
+
+// An entry point's failure reporter: logs `message` and the cause once, with
+// persistence failures, and whatever `redaction` accepts, reduced to their
+// reports. Interruption is a normal shutdown, not a failure, so it logs
+// nothing.
+const reportFailure =
+  <A = never>(message: string, redaction?: Redaction<A>) =>
+  (cause: Cause.Cause<unknown>) => {
+    if (Cause.hasInterruptsOnly(cause)) return Effect.void;
+
+    const redacted = redactPersistenceFailures(cause);
+    if (redaction === undefined) return Effect.logError(message, redacted);
+
+    return Effect.logError(
+      message,
+      redactCause(redacted, redaction.isSensitive, redaction.report),
+    );
+  };
 
 export {
   isPersistenceFailure,
   type PersistenceFailure,
   persistenceFailureFields,
   persistenceFailureReport,
-  redactCause,
   redactPersistenceFailures,
   reportFailure,
 };

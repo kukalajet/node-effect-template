@@ -297,9 +297,10 @@ repository error, so invalid stored data is reported as a server-side failure.
 Every repository error is built from `persistenceFailureFields(operations)` in
 `application`: a type-id brand, the failed `operation`, the raw `cause`, and
 safe `diagnostics`. `isPersistenceFailure` and `persistenceFailureReport` let
-the API and the worker handle any repository error without listing its class.
-`redactCause` rewrites the matching failures and defects in a cause before it is
-logged, and `redactPersistenceFailures` applies it to every persistence failure.
+the API and the worker handle any repository error without listing its class,
+and the report, its tag, operation, and diagnostics, is the only form in which
+one is logged. `redactPersistenceFailures` reduces every persistence failure in
+a cause, also one that arrives as a defect, to that report.
 
 Database adapters fill the diagnostics from the cause: the failure category, a
 driver error code when it is a SQLSTATE or Node system error code, and
@@ -315,11 +316,11 @@ Feature adapters own only the mapping from a cause to a domain error, the
 `refine` argument of `run`, such as a unique violation on the email constraint
 to `UserAlreadyExists`.
 
-HTTP handlers log only the error tag, operation, and diagnostics, and keep the
-response generic. The API's access log (`apps/api/src/access-log.ts`) replaces
-Effect's built-in HTTP logger, which logs each response's raw cause: it logs a
-5xx response's cause with `redactPersistenceFailures`, and no cause for a 4xx,
-whose cause can repeat the URL with its query string.
+HTTP handlers log a persistence failure's report as log annotations, and keep
+the response generic. The API's access log (`apps/api/src/access-log.ts`)
+replaces Effect's built-in HTTP logger, which logs each response's raw cause: it
+logs a 5xx response's cause with `redactPersistenceFailures`, and no cause for a
+4xx, whose cause can repeat the URL with its query string.
 
 The worker reports failures at its outer boundary, after configuration and
 persistence scopes finish. It logs a copy of the cause with every persistence
@@ -337,10 +338,13 @@ raw cause, as text outside `LoggingLive`. `apps/api/src/test/main.test.ts` runs
 stays off, since no module test can see either setting. `LoggingLive` reports
 its own failure, an invalid `LOG_LEVEL`, because nothing outside it can.
 
-`migrate.ts` follows the same policy with `redactCause`: a database failure is
-logged with its tag and diagnostics, including one that arrives as a defect
-because ROLLBACK died on a lost connection, while other failures, such as
-missing configuration, keep their details.
+`migrate.ts` uses `reportFailure` too, with a redaction of its own:
+`reportFailure(message, { isSensitive, report })` also reduces what
+`isSensitive` accepts. The migrator fails with raw database errors rather than
+persistence failures, so a database error is logged with its tag and
+diagnostics, including one that arrives as a defect because ROLLBACK died on a
+lost connection, while other failures, such as missing configuration, keep their
+details.
 
 ## Process lifecycle
 

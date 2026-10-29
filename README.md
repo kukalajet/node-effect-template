@@ -251,8 +251,8 @@ what the access log leaves out on purpose: the full URL with its query string
 (`url.full`, `url.query`), the user agent (`user_agent.original`) and the
 client's address (`client.address`); Effect redacts only a few signing
 parameters (`UrlParams.CurrentRedactedNames`). Reduce persistence failures with
-`redactCause`, and drop or redact those attributes, before anything leaves the
-process.
+`redactPersistenceFailures`, and drop or redact those attributes, before
+anything leaves the process.
 
 ## Scripts
 

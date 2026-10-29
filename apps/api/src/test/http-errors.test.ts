@@ -85,7 +85,7 @@ describe("http errors", () => {
           assert.isUndefined(log.cause);
 
           assert.deepStrictEqual(log.annotations, {
-            errorTag: testCase.error._tag,
+            _tag: testCase.error._tag,
             operation: testCase.error.operation,
             diagnostics: testCase.error.diagnostics,
           });

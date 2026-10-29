@@ -3,10 +3,10 @@ import { join } from "node:path";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
-import { Cause, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { SqlError } from "effect/sql";
 
-import { redactCause } from "@node-effect/application";
+import { reportFailure } from "@node-effect/application";
 import { AppConfig, LoggingLive, runtimeRoleConfig } from "@node-effect/config";
 
 import { diagnosticsFromCause } from "./error-diagnostics.ts";
@@ -40,14 +40,10 @@ const databaseFailureReport = (
 // their safe diagnostics, also when one arrives as a defect: a migration whose
 // connection drops fails its statement and then dies on ROLLBACK. Other
 // failures, such as missing configuration, keep their details.
-const reportMigrationFailure = (cause: Cause.Cause<unknown>) => {
-  if (Cause.hasInterruptsOnly(cause)) return Effect.void;
-
-  return Effect.logError(
-    "Database migration failed",
-    redactCause(cause, isDatabaseFailure, databaseFailureReport),
-  );
-};
+const reportMigrationFailure = reportFailure("Database migration failed", {
+  isSensitive: isDatabaseFailure,
+  report: databaseFailureReport,
+});
 
 const MigrationDatabaseLive = DatabaseLive.pipe(
   Layer.provideMerge(MigrationPgClientLive),
