@@ -15,8 +15,8 @@ import { Database, databaseCallTimeout } from "../postgres.ts";
 import { UserRowSchema, users } from "./schema.ts";
 import { userEmailConflict } from "./user-repository-error.ts";
 
-const decodeUserRow = Schema.decodeUnknownEffect(UserRowSchema);
-const decodeUserRows = Schema.decodeUnknownEffect(Schema.Array(UserRowSchema));
+const UserRows = Schema.Array(UserRowSchema);
+const InsertedUserRow = Schema.Tuple([UserRowSchema]);
 
 const makeUserRepository = Effect.gen(function* () {
   const database = yield* Database;
@@ -30,21 +30,23 @@ const makeUserRepository = Effect.gen(function* () {
   const insert = Effect.fn("UserRepository.insert")(function* (
     input: CreateUser,
   ) {
-    const rows = yield* calls.run(
+    const [user] = yield* calls.rows(
       "insert",
       database.insert(users).values(input).returning(),
+      InsertedUserRow,
       (cause) => userEmailConflict(input.email, cause),
     );
 
-    return yield* decodeUserRow(rows[0]).pipe(calls.failAs("insert"));
+    return user;
   });
 
   const findById = Effect.fn("UserRepository.findById")(function* (
     id: UserIdType,
   ) {
-    const rows = yield* calls.run(
+    const rows = yield* calls.rows(
       "findById",
       database.select().from(users).where(eq(users.id, id)).limit(1),
+      UserRows,
     );
 
     const user = Option.fromUndefinedOr(rows[0]);
@@ -53,23 +55,22 @@ const makeUserRepository = Effect.gen(function* () {
       return yield* new UserNotFound({ id });
     }
 
-    return yield* decodeUserRow(user.value).pipe(calls.failAs("findById"));
+    return user.value;
   });
 
   // Users inserted in one transaction share created_at (now() is the
   // transaction's start time). The id breaks those ties, so the order, and
   // which users fall under the limit, stays the same between requests.
   const list = Effect.fn("UserRepository.list")(function* (limit: number) {
-    const rows = yield* calls.run(
+    return yield* calls.rows(
       "list",
       database
         .select()
         .from(users)
         .orderBy(desc(users.createdAt), desc(users.id))
         .limit(limit),
+      UserRows,
     );
-
-    return yield* decodeUserRows(rows).pipe(calls.failAs("list"));
   });
 
   return UserRepository.of({ insert, findById, list });

@@ -102,7 +102,7 @@ describe("UserRepositoryLive", () => {
 
           assert.deepStrictEqual(failure.diagnostics, {
             reason: "SchemaError",
-            validationPaths: [operation === "list" ? `1.${path}` : path],
+            validationPaths: [`${operation === "list" ? 1 : 0}.${path}`],
           });
         }).pipe(
           Effect.provide(

@@ -288,8 +288,9 @@ the public application model from a Drizzle table, and do not make an API
 consumer import database schema code to validate a request.
 
 Decode persisted rows with their row schema before returning them from a
-repository, including rows returned by inserts. Map decoding failures to the
-repository error so invalid stored data is reported as a server-side failure.
+repository, including rows returned by inserts. Run such a query with
+`databaseCalls`' `rows`, which decodes them and maps a decoding failure to the
+repository error, so invalid stored data is reported as a server-side failure.
 
 ## Errors and safe diagnostics
 
@@ -309,10 +310,10 @@ reach handled-error logs. Database-wide extraction lives in
 through `databaseCalls(ErrorClass, timeout)` from
 `packages/database/src/database-call.ts`: its `run` bounds the call and turns
 any failure into the adapter's error for that operation, with those diagnostics,
-and its `failAs` does the same for a later step such as decoding rows. Feature
-adapters own only the mapping from a cause to a domain error, the `refine`
-argument of `run`, such as a unique violation on the email constraint to
-`UserAlreadyExists`.
+and its `rows` does the same and then decodes the rows the query returns.
+Feature adapters own only the mapping from a cause to a domain error, the
+`refine` argument of `run`, such as a unique violation on the email constraint
+to `UserAlreadyExists`.
 
 HTTP handlers log only the error tag, operation, and diagnostics, and keep the
 response generic. The API's access log (`apps/api/src/access-log.ts`) replaces
