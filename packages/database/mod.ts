@@ -1,3 +1,5 @@
+export { DatabaseHealthLive } from "./src/database-health-live.ts";
+
 export {
   Database,
   DatabaseLive,

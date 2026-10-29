@@ -2,9 +2,15 @@ import { assert, describe, it } from "@effect/vitest";
 import { Config, Duration, Effect, Layer, Redacted } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { UserRepository, UserRepositoryError } from "@node-effect/application";
+import {
+  DatabaseHealth,
+  DatabaseHealthError,
+  UserRepository,
+  UserRepositoryError,
+} from "@node-effect/application";
 import { AppConfig } from "@node-effect/config";
 
+import { DatabaseHealthLive } from "../../database-health-live.ts";
 import {
   databaseCallTimeout,
   DatabaseLive,
@@ -18,7 +24,7 @@ const statementTimeoutMs = 1000;
 // The call limit with that statement timeout: 5 + 1 + 2 seconds.
 const callLimitMs = Duration.toMillis(databaseCallTimeout(statementTimeoutMs));
 
-// UserRepositoryLive.health's own limit.
+// DatabaseHealthLive's own limit.
 const healthLimitMs = 5000;
 
 // PgClientLive's connect timeout.
@@ -37,7 +43,8 @@ const pausedTestTimeoutMs = 30_000;
 
 type BackendPid = { readonly pid: number };
 
-// UserRepositoryLive on a pool that reaches PostgreSQL through `proxyPort`.
+// UserRepositoryLive and DatabaseHealthLive on a pool that reaches PostgreSQL
+// through `proxyPort`.
 const repositoryThrough = (databaseUrl: URL, proxyPort: number) => {
   const proxiedUrl = new URL(databaseUrl);
 
@@ -56,7 +63,7 @@ const repositoryThrough = (databaseUrl: URL, proxyPort: number) => {
     }),
   );
 
-  return UserRepositoryLive.pipe(
+  return Layer.mergeAll(UserRepositoryLive, DatabaseHealthLive).pipe(
     Layer.provideMerge(DatabaseLive),
     Layer.provideMerge(PgClientLive),
     Layer.provideMerge(config),
@@ -77,6 +84,7 @@ describe("UserRepositoryLive on a paused PostgreSQL", () => {
 
         yield* Effect.gen(function* () {
           const repository = yield* UserRepository;
+          const health = yield* DatabaseHealth;
           const sql = yield* SqlClient.SqlClient;
 
           // Two overlapping queries leave two open connections in the pool,
@@ -100,7 +108,7 @@ describe("UserRepositoryLive on a paused PostgreSQL", () => {
             yield* Effect.all(
               [
                 repository.list(10).pipe(Effect.flip, Effect.timed),
-                repository.health.pipe(Effect.flip, Effect.timed),
+                health.check.pipe(Effect.flip, Effect.timed),
               ],
               { concurrency: 2 },
             );
@@ -124,7 +132,7 @@ describe("UserRepositoryLive on a paused PostgreSQL", () => {
             callLimitMs + cancelWaitMs + slackMs,
           );
 
-          assert.instanceOf(healthFailure, UserRepositoryError);
+          assert.instanceOf(healthFailure, DatabaseHealthError);
 
           assert.deepStrictEqual(healthFailure.diagnostics, {
             reason: "TimeoutError",

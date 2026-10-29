@@ -3,15 +3,15 @@ import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { OpenApi } from "effect/http-api";
 
-import { UserRepository } from "@node-effect/application";
+import { DatabaseHealth, UserRepository } from "@node-effect/application";
 
 import { Api } from "../api-contract.ts";
 import { ApiRoutes } from "../app.ts";
 
-const RequestServicesTest = Layer.mock(UserRepository, {
-  health: Effect.void,
-  list: () => Effect.succeed([]),
-});
+const RequestServicesTest = Layer.mergeAll(
+  Layer.mock(DatabaseHealth, { check: Effect.void }),
+  Layer.mock(UserRepository, { list: () => Effect.succeed([]) }),
+);
 
 const TestRoutes = ApiRoutes.pipe(
   HttpRouter.provideRequest(RequestServicesTest),

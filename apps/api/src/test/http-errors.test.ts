@@ -1,32 +1,27 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Logger } from "effect";
 
-import { UserRepositoryError } from "@node-effect/application";
+import {
+  DatabaseHealthError,
+  type PersistenceFailure,
+  UserRepositoryError,
+} from "@node-effect/application";
 
 import { databaseFailure, healthFailure } from "../http-errors.ts";
 
 const sentinels = /SECRET_SENTINEL|SQL_SENTINEL|PARAM_SENTINEL/;
 
-const repositoryError = (
-  operation: UserRepositoryError["operation"],
-  diagnostics: UserRepositoryError["diagnostics"],
-) =>
-  new UserRepositoryError({
-    operation,
-    cause: Object.assign(new Error("SECRET_SENTINEL"), {
-      query: "select SQL_SENTINEL",
-      params: ["PARAM_SENTINEL"],
-    }),
-    diagnostics,
+// A raw cause carrying what must never reach a log line.
+const sensitiveCause = () =>
+  Object.assign(new Error("SECRET_SENTINEL"), {
+    query: "select SQL_SENTINEL",
+    params: ["PARAM_SENTINEL"],
   });
 
 type FailureCase = {
   readonly name: string;
-  readonly handle: (
-    error: UserRepositoryError,
-  ) => Effect.Effect<never, unknown>;
-  readonly operation: UserRepositoryError["operation"];
-  readonly diagnostics: UserRepositoryError["diagnostics"];
+  readonly handle: (error: PersistenceFailure) => Effect.Effect<never, unknown>;
+  readonly error: PersistenceFailure;
   readonly body: unknown;
   readonly logMessage: string;
 };
@@ -35,8 +30,11 @@ const failureCases: ReadonlyArray<FailureCase> = [
   {
     name: "databaseFailure",
     handle: databaseFailure,
-    operation: "list",
-    diagnostics: { reason: "SchemaError", validationPaths: ["email"] },
+    error: new UserRepositoryError({
+      operation: "list",
+      cause: sensitiveCause(),
+      diagnostics: { reason: "SchemaError", validationPaths: ["email"] },
+    }),
     body: {
       error: {
         code: "DATABASE_ERROR",
@@ -48,8 +46,11 @@ const failureCases: ReadonlyArray<FailureCase> = [
   {
     name: "healthFailure",
     handle: healthFailure,
-    operation: "health",
-    diagnostics: { reason: "AuthorizationError", code: "42501" },
+    error: new DatabaseHealthError({
+      operation: "check",
+      cause: sensitiveCause(),
+      diagnostics: { reason: "AuthorizationError", code: "42501" },
+    }),
     body: {
       error: {
         code: "DATABASE_UNAVAILABLE",
@@ -72,13 +73,8 @@ describe("http errors", () => {
             lines.push(line);
           });
 
-          const error = repositoryError(
-            testCase.operation,
-            testCase.diagnostics,
-          );
-
           const body = yield* testCase
-            .handle(error)
+            .handle(testCase.error)
             .pipe(Effect.flip, Effect.provide(Logger.layer([logger])));
 
           assert.deepStrictEqual(body, testCase.body);
@@ -89,9 +85,9 @@ describe("http errors", () => {
           assert.isUndefined(log.cause);
 
           assert.deepStrictEqual(log.annotations, {
-            errorTag: "UserRepositoryError",
-            operation: testCase.operation,
-            diagnostics: testCase.diagnostics,
+            errorTag: testCase.error._tag,
+            operation: testCase.error.operation,
+            diagnostics: testCase.error.diagnostics,
           });
 
           assert.notMatch(lines.join("\n"), sentinels);

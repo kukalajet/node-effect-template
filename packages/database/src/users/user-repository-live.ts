@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { Effect, Layer, Option, Schema } from "effect";
 
 import { UserRepository } from "@node-effect/application";
@@ -28,12 +28,6 @@ const makeUserRepository = Effect.gen(function* () {
   // answering, and the call fails as a TimeoutError (see databaseCallTimeout).
   const withinCallLimit = Effect.timeout(
     databaseCallTimeout(config.databaseStatementTimeoutMs),
-  );
-
-  const health = database.execute(sql`select 1`).pipe(
-    Effect.timeout("5 seconds"),
-    Effect.asVoid,
-    Effect.mapError((cause) => toUserRepositoryError("health", cause)),
   );
 
   const insert = Effect.fn("UserRepository.insert")(function* (
@@ -94,7 +88,7 @@ const makeUserRepository = Effect.gen(function* () {
     Effect.mapError((cause) => toUserRepositoryError("list", cause)),
   );
 
-  return UserRepository.of({ health, insert, findById, list });
+  return UserRepository.of({ insert, findById, list });
 });
 
 const UserRepositoryLive = Layer.effect(UserRepository, makeUserRepository);

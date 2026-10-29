@@ -179,7 +179,6 @@ describe("worker failure reporting", () => {
               yield* Effect.addFinalizer(() => Effect.die(cleanupError));
 
               return UserRepository.of({
-                health: Effect.void,
                 insert: () => Effect.fail(error),
                 findById: () => Effect.fail(error),
                 list: () => Effect.fail(error),

@@ -99,6 +99,7 @@ packages/
     src/user.ts                   # domain values, models, and errors
   application/
     mod.ts
+    src/database-health.ts        # readiness port: does the database answer
     src/persistence-failure.ts    # repository error fields, report, redactCause
     src/users/user-repository.ts  # abstract service (port) and its error
   config/
@@ -109,6 +110,7 @@ packages/
   database/
     mod.ts
     src/postgres.ts               # PgClient and Database services and layers
+    src/database-health-live.ts   # select 1 with a 5 second limit
     src/error-diagnostics.ts      # safe diagnostics from database causes
     src/migrate.ts                # migration entry point
     src/runtime-role.ts           # the API's and worker's role, which migrate provisions
@@ -196,10 +198,10 @@ Keep the contract, implementation, composition, and test replacement separate:
    chain:
 
    ```ts
-   const RequestServicesLive = UserRepositoryLive.pipe(
-     Layer.provide(DatabaseLive),
-     Layer.provide(PgClientLive),
-   );
+   const RequestServicesLive = Layer.mergeAll(
+     DatabaseHealthLive,
+     UserRepositoryLive,
+   ).pipe(Layer.provide(DatabaseLive), Layer.provide(PgClientLive));
    ```
 
    `main.ts` provides it to the routes with `HttpRouter.provideRequest`, and

@@ -10,7 +10,7 @@ import {
 
 import { persistenceFailureFields } from "../persistence-failure.ts";
 
-const repositoryOperations = ["health", "insert", "findById", "list"] as const;
+const repositoryOperations = ["insert", "findById", "list"] as const;
 
 class UserRepositoryError extends Schema.TaggedError<UserRepositoryError>()(
   "UserRepositoryError",
@@ -20,7 +20,6 @@ class UserRepositoryError extends Schema.TaggedError<UserRepositoryError>()(
 class UserRepository extends Context.Service<
   UserRepository,
   {
-    readonly health: Effect.Effect<void, UserRepositoryError>;
     readonly insert: (
       input: CreateUser,
     ) => Effect.Effect<User, UserAlreadyExists | UserRepositoryError>;
