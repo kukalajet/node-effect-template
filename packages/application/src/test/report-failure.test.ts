@@ -1,11 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Console, ConfigProvider, Effect, Layer } from "effect";
-import { TestConsole } from "effect/testing";
+import { Effect, Logger } from "effect";
 
-import { UserRepositoryError } from "@node-effect/application";
-import { LoggingLive } from "@node-effect/config";
-
-import { reportApiFailure } from "../api-failure.ts";
+import { reportFailure, UserRepositoryError } from "@node-effect/application";
 
 const sentinels = /SECRET_SENTINEL|SQL_SENTINEL|PARAM_SENTINEL/;
 
@@ -18,33 +14,25 @@ const repositoryFailure = new UserRepositoryError({
   diagnostics: { reason: "ConnectionError", code: "ECONNREFUSED" },
 });
 
-// Runs `program` with the API's reporter, logging as main.ts does to a
-// TestConsole, and returns the JSON lines.
+// Runs `program` with the reporter, logging as JSON lines, and returns them.
 const reportedLines = <E>(program: Effect.Effect<void, E>) =>
   Effect.gen(function* () {
-    const testConsole = yield* TestConsole.make;
+    const lines: Array<string> = [];
+
+    const logger = Logger.map(Logger.formatJson, (line) => {
+      lines.push(line);
+    });
 
     yield* program.pipe(
-      Effect.tapCause(reportApiFailure),
+      Effect.tapCause(reportFailure("Entry point failed")),
       Effect.exit,
-      Effect.provide(
-        Layer.mergeAll(
-          LoggingLive.pipe(
-            Layer.provide(
-              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
-            ),
-          ),
-          Layer.succeed(Console.Console, testConsole),
-        ),
-      ),
+      Effect.provideService(Logger.CurrentLoggers, new Set([logger])),
     );
 
-    const lines = yield* testConsole.logLines;
-
-    return lines.map((line) => JSON.parse(String(line)));
+    return lines.map((line) => JSON.parse(line));
   });
 
-describe("reportApiFailure", () => {
+describe("reportFailure", () => {
   it.effect("logs a persistence failure once, as its safe report", () =>
     Effect.gen(function* () {
       for (const program of [
@@ -55,7 +43,7 @@ describe("reportApiFailure", () => {
 
         assert.deepStrictEqual(
           lines.map((line) => [line.message, line.level]),
-          [["API failed", "ERROR"]],
+          [["Entry point failed", "ERROR"]],
         );
 
         const output = JSON.stringify(lines);
@@ -74,7 +62,7 @@ describe("reportApiFailure", () => {
       );
 
       assert.lengthOf(lines, 1);
-      assert.include(lines[0]?.cause, "UNEXPECTED_DEFECT");
+      assert.include(JSON.stringify(lines[0]), "UNEXPECTED_DEFECT");
     }),
   );
 

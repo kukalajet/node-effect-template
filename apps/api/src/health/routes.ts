@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
-import { UserRepository } from "@node-effect/application";
+import { DatabaseHealth } from "@node-effect/application";
 
 import { Api } from "../api-contract.ts";
 import { healthFailure } from "../http-errors.ts";
@@ -11,11 +11,11 @@ import { LivenessResponse, ReadinessResponse } from "./api-contract.ts";
 const live = Effect.succeed(LivenessResponse.make({ status: "ok" }));
 
 const ready = Effect.gen(function* () {
-  const repository = yield* UserRepository;
-  yield* repository.health;
+  const health = yield* DatabaseHealth;
+  yield* health.check;
 
   return ReadinessResponse.make({ status: "ok", database: "ok" });
-}).pipe(Effect.catchTag("UserRepositoryError", healthFailure));
+}).pipe(Effect.catchTag("DatabaseHealthError", healthFailure));
 
 const HealthHandlers = HttpApiBuilder.group(Api, "health", (handlers) =>
   handlers

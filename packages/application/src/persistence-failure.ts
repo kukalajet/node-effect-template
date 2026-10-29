@@ -1,4 +1,4 @@
-import { Cause, Predicate, Schema } from "effect";
+import { Cause, Effect, Predicate, Schema } from "effect";
 
 const PersistenceFailureTypeId = "~@node-effect/application/PersistenceFailure";
 
@@ -64,10 +64,26 @@ const redactCause = <A>(
     }),
   );
 
+// The cause with every persistence failure in it, also one that arrives as a
+// defect, reduced to its report. Anything else keeps its details.
+const redactPersistenceFailures = (cause: Cause.Cause<unknown>) =>
+  redactCause(cause, isPersistenceFailure, persistenceFailureReport);
+
+// An entry point's failure reporter: logs `message` and the cause once, with
+// persistence failures redacted. Interruption is a normal shutdown, not a
+// failure, so it logs nothing.
+const reportFailure = (message: string) => (cause: Cause.Cause<unknown>) => {
+  if (Cause.hasInterruptsOnly(cause)) return Effect.void;
+
+  return Effect.logError(message, redactPersistenceFailures(cause));
+};
+
 export {
   isPersistenceFailure,
   type PersistenceFailure,
   persistenceFailureFields,
   persistenceFailureReport,
   redactCause,
+  redactPersistenceFailures,
+  reportFailure,
 };

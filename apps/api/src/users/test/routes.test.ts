@@ -56,7 +56,6 @@ const fakeRepository = (overrides: Partial<UserRepository["Service"]> = {}) => {
   const layer = Layer.succeed(
     UserRepository,
     UserRepository.of({
-      health: Effect.void,
       insert: (input) =>
         Effect.sync(() => {
           inserted.push(input);

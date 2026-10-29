@@ -3,7 +3,7 @@ import { Effect, Layer, Logger } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApi, HttpApiBuilder } from "effect/http-api";
 
-import { UserRepository, UserRepositoryError } from "@node-effect/application";
+import { DatabaseHealth, DatabaseHealthError } from "@node-effect/application";
 
 import { Api } from "../../api-contract.ts";
 import { assertContractResponse } from "../../test/contract-response.ts";
@@ -17,18 +17,18 @@ const HealthRoutes = HttpApiBuilder.layer(HealthApi).pipe(
   Layer.provide(Logger.layer([])),
 );
 
-const databaseUnavailable = new UserRepositoryError({
-  operation: "health",
+const databaseUnavailable = new DatabaseHealthError({
+  operation: "check",
   cause: new Error("Unreachable PostgreSQL"),
   diagnostics: { reason: "ConnectionError", code: "ECONNREFUSED" },
 });
 
-// A repository whose health check succeeds or fails and counts its calls.
-const repositoryWithHealth = (available: boolean) => {
+// A database health check that succeeds or fails and counts its calls.
+const databaseHealth = (available: boolean) => {
   const health = { checks: 0 };
 
-  const layer = Layer.mock(UserRepository, {
-    health: Effect.suspend(() => {
+  const layer = Layer.mock(DatabaseHealth, {
+    check: Effect.suspend(() => {
       health.checks += 1;
       if (available) return Effect.void;
 
@@ -39,9 +39,9 @@ const repositoryWithHealth = (available: boolean) => {
   return { health, layer };
 };
 
-const serve = (repository: Layer.Layer<UserRepository>) => {
+const serve = (health: Layer.Layer<DatabaseHealth>) => {
   const web = HttpRouter.toWebHandler(
-    HealthRoutes.pipe(HttpRouter.provideRequest(repository)),
+    HealthRoutes.pipe(HttpRouter.provideRequest(health)),
     { disableLogger: true },
   );
 
@@ -62,15 +62,15 @@ describe("health routes", () => {
     const state = available ? "available" : "down";
 
     it(`liveness answers 200 without the database while it is ${state}`, async () => {
-      const repository = repositoryWithHealth(available);
-      const server = serve(repository.layer);
+      const database = databaseHealth(available);
+      const server = serve(database.layer);
 
       try {
         const response = await server.fetch("/health/live");
 
         assert.strictEqual(response.status, 200);
         assert.deepStrictEqual(await response.json(), { status: "ok" });
-        assert.strictEqual(repository.health.checks, 0);
+        assert.strictEqual(database.health.checks, 0);
       } finally {
         await server.dispose();
       }
@@ -79,8 +79,8 @@ describe("health routes", () => {
 
   for (const path of ["/health/ready", "/health"]) {
     it(`${path} answers 200 when the database is available`, async () => {
-      const repository = repositoryWithHealth(true);
-      const server = serve(repository.layer);
+      const database = databaseHealth(true);
+      const server = serve(database.layer);
 
       try {
         const response = await server.fetch(path);
@@ -92,15 +92,15 @@ describe("health routes", () => {
           database: "ok",
         });
 
-        assert.strictEqual(repository.health.checks, 1);
+        assert.strictEqual(database.health.checks, 1);
       } finally {
         await server.dispose();
       }
     });
 
     it(`${path} answers 503 when the database is down`, async () => {
-      const repository = repositoryWithHealth(false);
-      const server = serve(repository.layer);
+      const database = databaseHealth(false);
+      const server = serve(database.layer);
 
       try {
         const response = await server.fetch(path);
@@ -114,7 +114,7 @@ describe("health routes", () => {
           },
         });
 
-        assert.strictEqual(repository.health.checks, 1);
+        assert.strictEqual(database.health.checks, 1);
       } finally {
         await server.dispose();
       }

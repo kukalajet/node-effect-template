@@ -1,30 +1,15 @@
-import { Cause, Effect } from "effect";
+import type { Cause } from "effect";
+import { Effect } from "effect";
 
-import {
-  isPersistenceFailure,
-  persistenceFailureReport,
-  redactCause,
-} from "@node-effect/application";
+import { reportFailure } from "@node-effect/application";
 
-// Logs a failure once. Interruption is a normal shutdown, not a failure.
-//
-// Repository errors carry their raw cause, which can hold SQL, parameters, and
-// stored values, so they are reported by their safe diagnostics instead, also
-// when one arrives as a defect. Any other failure keeps its details: a pass
-// timeout's TimeoutError names the job and the limit, and anything else is
-// unexpected.
-const reportWorkerFailure = (cause: Cause.Cause<unknown>) => {
-  if (Cause.hasInterruptsOnly(cause)) return Effect.void;
-
-  const reportedCause = redactCause(
-    cause,
-    isPersistenceFailure,
-    persistenceFailureReport,
-  );
-
-  return Effect.logError("Worker failed", reportedCause).pipe(
+// Logs a failure once, as every entry point does: a repository error by its
+// safe diagnostics, also when one arrives as a defect, and nothing for
+// interruption. Any other failure keeps its details: a pass timeout's
+// TimeoutError names the job and the limit, and anything else is unexpected.
+const reportWorkerFailure = (cause: Cause.Cause<unknown>) =>
+  reportFailure("Worker failed")(cause).pipe(
     Effect.annotateLogs({ service: "worker" }),
   );
-};
 
 export { reportWorkerFailure };

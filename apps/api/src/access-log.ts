@@ -6,11 +6,7 @@ import {
   type HttpServerResponse,
 } from "effect/http";
 
-import {
-  isPersistenceFailure,
-  persistenceFailureReport,
-  redactCause,
-} from "@node-effect/application";
+import { redactPersistenceFailures } from "@node-effect/application";
 
 // Compose's healthcheck and bin/release poll these every few seconds; only a
 // probe that fails is worth a line.
@@ -75,9 +71,7 @@ const serverErrorCause = (outcome: Outcome) => {
 
   return Option.match(outcome.cause, {
     onNone: () => [],
-    onSome: (cause) => [
-      redactCause(cause, isPersistenceFailure, persistenceFailureReport),
-    ],
+    onSome: (cause) => [redactPersistenceFailures(cause)],
   });
 };
 

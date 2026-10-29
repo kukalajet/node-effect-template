@@ -1,19 +1,8 @@
-import { UserRepositoryError } from "@node-effect/application";
 import { type EmailType, UserAlreadyExists } from "@node-effect/domain";
 
-import { diagnosticsFromCause, findSqlError } from "../error-diagnostics.ts";
+import { findSqlError } from "../error-diagnostics.ts";
 
 import { userEmailUniqueConstraint } from "./schema.ts";
-
-const toUserRepositoryError = (
-  operation: UserRepositoryError["operation"],
-  cause: unknown,
-) =>
-  new UserRepositoryError({
-    operation,
-    cause,
-    diagnostics: diagnosticsFromCause(cause),
-  });
 
 const isUserEmailConflict = (cause: unknown): boolean => {
   const reason = findSqlError(cause)?.reason;
@@ -25,11 +14,11 @@ const isUserEmailConflict = (cause: unknown): boolean => {
 };
 
 // Only the email constraint means the address is taken; any other unique
-// violation is a persistence failure.
-const toUserInsertError = (email: EmailType, cause: unknown) => {
-  if (isUserEmailConflict(cause)) return new UserAlreadyExists({ email });
+// violation stays a persistence failure, so this leaves it undefined.
+const userEmailConflict = (email: EmailType, cause: unknown) => {
+  if (!isUserEmailConflict(cause)) return undefined;
 
-  return toUserRepositoryError("insert", cause);
+  return new UserAlreadyExists({ email });
 };
 
-export { toUserInsertError, toUserRepositoryError };
+export { userEmailConflict };

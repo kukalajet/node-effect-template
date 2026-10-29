@@ -188,12 +188,4 @@ describe("UserRepositoryLive on PostgreSQL", () => {
       });
     }).pipe(withUserDatabase),
   );
-
-  it.live("is ready while PostgreSQL answers", () =>
-    Effect.gen(function* () {
-      const repository = yield* UserRepository;
-
-      yield* repository.health;
-    }).pipe(withUserDatabase),
-  );
 });

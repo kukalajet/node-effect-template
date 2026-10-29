@@ -66,7 +66,6 @@ apps/
     main.ts                       # HTTP server, logging, runtime launch
     request-services-live.ts      # adapters behind the ports routes use
     access-log.ts                 # one line per request, 5xx causes redacted
-    api-failure.ts                # reportApiFailure: a failure to start or serve
     app.ts                        # HttpApi routes, OpenAPI and Swagger UI
     api-contract.ts               # root HttpApi: every group, OpenAPI metadata
     api-schemas.ts                # public error envelope, shared responses
@@ -89,7 +88,7 @@ apps/
     worker-errors.ts              # safe failure reporting
     jobs/
       sample-users.ts             # one job
-      worker-work.ts              # one pass of every job; the polling loops
+      worker-work.ts              # the job table; one pass of every job; the polling loops
       test/
     test/                         # failure reporting tests
 
@@ -99,7 +98,8 @@ packages/
     src/user.ts                   # domain values, models, and errors
   application/
     mod.ts
-    src/persistence-failure.ts    # repository error fields, report, redactCause
+    src/database-health.ts        # readiness port: does the database answer
+    src/persistence-failure.ts    # repository error fields, report, redaction, reportFailure
     src/users/user-repository.ts  # abstract service (port) and its error
   config/
     mod.ts
@@ -109,7 +109,9 @@ packages/
   database/
     mod.ts
     src/postgres.ts               # PgClient and Database services and layers
+    src/database-health-live.ts   # select 1 with a 5 second limit
     src/error-diagnostics.ts      # safe diagnostics from database causes
+    src/database-call.ts          # databaseCalls: bounded calls that fail as a persistence failure
     src/migrate.ts                # migration entry point
     src/runtime-role.ts           # the API's and worker's role, which migrate provisions
     src/users/schema.ts           # Drizzle table and row schemas
@@ -156,7 +158,7 @@ today; ownership, rather than line count, decides the location.
 | What the API logs for each request                                         | `apps/api/src/access-log.ts`                                                                             |
 | Log format, level, or another logger                                       | `packages/config/src/logging.ts`                                                                         |
 | Adapter that the routes need                                               | `apps/api/src/request-services-live.ts`                                                                  |
-| Worker job, or one-shot work                                               | `apps/worker/src/jobs/`, added to the pass and the loops in `worker-work.ts`                             |
+| Worker job, or one-shot work                                               | `apps/worker/src/jobs/`, added to `workerJobs` in `worker-work.ts`                                       |
 | Port or adapter that a worker job needs                                    | `WorkerRequirements` and `WorkerServicesLive` in `worker-runtime.ts`                                     |
 | Business value, invariant, entity, command, or domain error                | `packages/domain/src/<feature>.ts`                                                                       |
 | Use-case orchestration or outbound service contract                        | `packages/application/src/<feature>/`                                                                    |
@@ -196,10 +198,10 @@ Keep the contract, implementation, composition, and test replacement separate:
    chain:
 
    ```ts
-   const RequestServicesLive = UserRepositoryLive.pipe(
-     Layer.provide(DatabaseLive),
-     Layer.provide(PgClientLive),
-   );
+   const RequestServicesLive = Layer.mergeAll(
+     DatabaseHealthLive,
+     UserRepositoryLive,
+   ).pipe(Layer.provide(DatabaseLive), Layer.provide(PgClientLive));
    ```
 
    `main.ts` provides it to the routes with `HttpRouter.provideRequest`, and
@@ -296,21 +298,27 @@ Every repository error is built from `persistenceFailureFields(operations)` in
 safe `diagnostics`. `isPersistenceFailure` and `persistenceFailureReport` let
 the API and the worker handle any repository error without listing its class.
 `redactCause` rewrites the matching failures and defects in a cause before it is
-logged.
+logged, and `redactPersistenceFailures` applies it to every persistence failure.
 
 Database adapters fill the diagnostics from the cause: the failure category, a
 driver error code when it is a SQLSTATE or Node system error code, and
 validation field paths. Raw causes remain available for inspection, but their
 messages and stacks can contain SQL, parameters, or stored values and must not
 reach handled-error logs. Database-wide extraction lives in
-`packages/database/src/error-diagnostics.ts`; feature adapters own the mapping
-to their repository and domain errors.
+`packages/database/src/error-diagnostics.ts`. An adapter calls the database
+through `databaseCalls(ErrorClass, timeout)` from
+`packages/database/src/database-call.ts`: its `run` bounds the call and turns
+any failure into the adapter's error for that operation, with those diagnostics,
+and its `failAs` does the same for a later step such as decoding rows. Feature
+adapters own only the mapping from a cause to a domain error, the `refine`
+argument of `run`, such as a unique violation on the email constraint to
+`UserAlreadyExists`.
 
 HTTP handlers log only the error tag, operation, and diagnostics, and keep the
 response generic. The API's access log (`apps/api/src/access-log.ts`) replaces
 Effect's built-in HTTP logger, which logs each response's raw cause: it logs a
-5xx response's cause with `redactCause`, and no cause for a 4xx, whose cause can
-repeat the URL with its query string.
+5xx response's cause with `redactPersistenceFailures`, and no cause for a 4xx,
+whose cause can repeat the URL with its query string.
 
 The worker reports failures at its outer boundary, after configuration and
 persistence scopes finish. It logs a copy of the cause with every persistence
@@ -319,14 +327,14 @@ arrives as a defect, which happens when a finalizer dies after the program
 failed. The original failure and exit code remain intact, including any cleanup
 defects. Unexpected errors keep their normal diagnostic details; this is not
 universal secret redaction. Interruption-only exits remain quiet. The API's
-`main.ts` reports a failure to start or serve the same way, with
-`reportApiFailure` from `api-failure.ts`. Keep each reporter paired with
-`runMain`'s `disableErrorReporting: true`, which prevents the runtime from also
-logging the raw cause, as text outside `LoggingLive`.
-`apps/api/src/test/main.test.ts` runs `main.ts` as a process to check that and
-that Effect's built-in HTTP logger stays off, since no module test can see
-either setting. `LoggingLive` reports its own failure, an invalid `LOG_LEVEL`,
-because nothing outside it can.
+`main.ts` reports a failure to start or serve the same way. Both use
+`reportFailure(message)` from `application`, which the worker's reporter
+annotates with its service. Keep each reporter paired with `runMain`'s
+`disableErrorReporting: true`, which prevents the runtime from also logging the
+raw cause, as text outside `LoggingLive`. `apps/api/src/test/main.test.ts` runs
+`main.ts` as a process to check that and that Effect's built-in HTTP logger
+stays off, since no module test can see either setting. `LoggingLive` reports
+its own failure, an invalid `LOG_LEVEL`, because nothing outside it can.
 
 `migrate.ts` follows the same policy with `redactCause`: a database failure is
 logged with its tag and diagnostics, including one that arrives as a defect
@@ -355,14 +363,14 @@ every statement (`DATABASE_STATEMENT_TIMEOUT_MS`), every lock wait, and every
 session left idle inside a transaction. A statement or lock timeout carries its
 SQLSTATE code (57014, 55P03) in the diagnostics, and a pool wait is a
 `ConnectionError`. PostgreSQL enforces those limits, so they cannot fire when
-the server stops answering. A repository therefore bounds each call itself with
+the server stops answering. A repository therefore bounds each call itself:
+`databaseCalls` requires a timeout, and a repository passes
 `databaseCallTimeout`, a little longer than the pool wait and the statement
-together, and reports a call that runs out as a `TimeoutError`; a new repository
-should do the same. Each surfaces as an ordinary persistence failure. The one
-exception is a session PostgreSQL ends for idling inside a transaction: its
-connection goes with it, so the transaction's rollback fails and the transaction
-dies with a defect. `packages/database/src/postgres.ts` gives the reason for
-each value.
+together. A call that runs out is reported as a `TimeoutError`. Each surfaces as
+an ordinary persistence failure. The one exception is a session PostgreSQL ends
+for idling inside a transaction: its connection goes with it, so the
+transaction's rollback fails and the transaction dies with a defect.
+`packages/database/src/postgres.ts` gives the reason for each value.
 
 The worker's persistent entry point runs each job on an independent loop, so a
 slow job never delays another, and passes of one job never overlap. The first

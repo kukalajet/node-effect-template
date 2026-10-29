@@ -5,10 +5,10 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/http";
 
+import { reportFailure } from "@node-effect/application";
 import { AppConfig, LoggingLive } from "@node-effect/config";
 
 import { accessLog } from "./access-log.ts";
-import { reportApiFailure } from "./api-failure.ts";
 import { ApiRoutes } from "./app.ts";
 import { RequestServicesLive } from "./request-services-live.ts";
 
@@ -44,11 +44,11 @@ const ServerLive = HttpRouter.serve(
   { disableLogger: true, middleware: accessLog },
 ).pipe(Layer.provide(HttpServerLive), Layer.provide(AppConfig.layer));
 
-// reportApiFailure logs a failure to start or serve as JSON, inside
+// reportFailure logs a failure to start or serve as JSON, inside
 // LoggingLive. runMain's own reporting stays off: it would log the raw cause
 // again, as text, outside LoggingLive. test/main.test.ts checks this too.
 const main = Layer.launch(ServerLive).pipe(
-  Effect.tapCause(reportApiFailure),
+  Effect.tapCause(reportFailure("API failed")),
   Effect.provide(LoggingLive),
 );
 
