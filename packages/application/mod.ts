@@ -5,6 +5,8 @@ export {
   type PersistenceFailure,
   persistenceFailureReport,
   redactCause,
+  redactPersistenceFailures,
+  reportFailure,
 } from "./src/persistence-failure.ts";
 
 export {

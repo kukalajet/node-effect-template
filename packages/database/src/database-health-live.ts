@@ -3,26 +3,18 @@ import { Effect, Layer } from "effect";
 
 import { DatabaseHealth, DatabaseHealthError } from "@node-effect/application";
 
-import { diagnosticsFromCause } from "./error-diagnostics.ts";
+import { databaseCalls } from "./database-call.ts";
 import { Database } from "./postgres.ts";
 
 // Readiness must answer before the probe gives up, so the check has its own
 // short limit rather than the statement-based call limit.
 const makeDatabaseHealth = Effect.gen(function* () {
   const database = yield* Database;
+  const calls = databaseCalls(DatabaseHealthError, "5 seconds");
 
-  const check = database.execute(sql`select 1`).pipe(
-    Effect.timeout("5 seconds"),
-    Effect.asVoid,
-    Effect.mapError(
-      (cause) =>
-        new DatabaseHealthError({
-          operation: "check",
-          cause,
-          diagnostics: diagnosticsFromCause(cause),
-        }),
-    ),
-  );
+  const check = calls
+    .run("check", database.execute(sql`select 1`))
+    .pipe(Effect.asVoid);
 
   return DatabaseHealth.of({ check });
 });
