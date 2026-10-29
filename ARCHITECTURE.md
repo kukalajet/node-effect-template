@@ -89,7 +89,7 @@ apps/
     worker-errors.ts              # safe failure reporting
     jobs/
       sample-users.ts             # one job
-      worker-work.ts              # one pass of every job; the polling loops
+      worker-work.ts              # the job table; one pass of every job; the polling loops
       test/
     test/                         # failure reporting tests
 
@@ -156,7 +156,7 @@ today; ownership, rather than line count, decides the location.
 | What the API logs for each request                                         | `apps/api/src/access-log.ts`                                                                             |
 | Log format, level, or another logger                                       | `packages/config/src/logging.ts`                                                                         |
 | Adapter that the routes need                                               | `apps/api/src/request-services-live.ts`                                                                  |
-| Worker job, or one-shot work                                               | `apps/worker/src/jobs/`, added to the pass and the loops in `worker-work.ts`                             |
+| Worker job, or one-shot work                                               | `apps/worker/src/jobs/`, added to `workerJobs` in `worker-work.ts`                                       |
 | Port or adapter that a worker job needs                                    | `WorkerRequirements` and `WorkerServicesLive` in `worker-runtime.ts`                                     |
 | Business value, invariant, entity, command, or domain error                | `packages/domain/src/<feature>.ts`                                                                       |
 | Use-case orchestration or outbound service contract                        | `packages/application/src/<feature>/`                                                                    |
