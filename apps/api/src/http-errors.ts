@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 
-import type { PersistenceFailure } from "@node-effect/application";
+import {
+  type PersistenceFailure,
+  persistenceFailureReport,
+} from "@node-effect/application";
 
 import {
   DatabaseErrorResponse,
@@ -22,14 +25,11 @@ const databaseUnavailable = DatabaseUnavailableResponse.make({
 });
 
 // The cause can carry SQL, parameters, and stored values, so only the safe
-// diagnostics reach the log, and the response says nothing about the failure.
+// report reaches the log, the same one entry points log, and the response says
+// nothing about the failure.
 const logPersistenceFailure = (message: string, error: PersistenceFailure) =>
   Effect.logError(message).pipe(
-    Effect.annotateLogs({
-      errorTag: error._tag,
-      operation: error.operation,
-      diagnostics: error.diagnostics,
-    }),
+    Effect.annotateLogs(persistenceFailureReport(error)),
   );
 
 // A failed operation is a server error: 500.

@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Logger } from "effect";
+import { type Cause, Effect, Logger } from "effect";
 
 import { reportFailure, UserRepositoryError } from "@node-effect/application";
 
@@ -14,8 +14,13 @@ const repositoryFailure = new UserRepositoryError({
   diagnostics: { reason: "ConnectionError", code: "ECONNREFUSED" },
 });
 
-// Runs `program` with the reporter, logging as JSON lines, and returns them.
-const reportedLines = <E>(program: Effect.Effect<void, E>) =>
+type Reporter = (cause: Cause.Cause<unknown>) => Effect.Effect<void>;
+
+// Runs `program` with `reporter`, logging as JSON lines, and returns them.
+const reportedLines = <E>(
+  program: Effect.Effect<void, E>,
+  reporter: Reporter = reportFailure("Entry point failed"),
+) =>
   Effect.gen(function* () {
     const lines: Array<string> = [];
 
@@ -24,7 +29,7 @@ const reportedLines = <E>(program: Effect.Effect<void, E>) =>
     });
 
     yield* program.pipe(
-      Effect.tapCause(reportFailure("Entry point failed")),
+      Effect.tapCause(reporter),
       Effect.exit,
       Effect.provideService(Logger.CurrentLoggers, new Set([logger])),
     );
@@ -71,6 +76,38 @@ describe("reportFailure", () => {
       const lines = yield* reportedLines(Effect.interrupt);
 
       assert.deepStrictEqual(lines, []);
+    }),
+  );
+
+  it.effect("reduces what its redaction accepts, also as a defect", () =>
+    Effect.gen(function* () {
+      const isSecret = (value: unknown): value is string =>
+        value === "SECRET_SENTINEL";
+
+      const reporter = reportFailure("Entry point failed", {
+        isSensitive: isSecret,
+        report: () => "REDACTED",
+      });
+
+      const programs: ReadonlyArray<Effect.Effect<void, unknown>> = [
+        Effect.fail("SECRET_SENTINEL"),
+        Effect.die("SECRET_SENTINEL"),
+        Effect.fail(repositoryFailure),
+      ];
+
+      for (const program of programs) {
+        const lines = yield* reportedLines(program, reporter);
+
+        assert.lengthOf(lines, 1);
+        assert.notMatch(JSON.stringify(lines), sentinels);
+      }
+
+      const [unrelated] = yield* reportedLines(
+        Effect.fail("UNRELATED_FAILURE"),
+        reporter,
+      );
+
+      assert.include(JSON.stringify(unrelated), "UNRELATED_FAILURE");
     }),
   );
 });
