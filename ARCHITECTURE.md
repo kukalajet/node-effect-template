@@ -111,7 +111,7 @@ packages/
     src/postgres.ts               # PgClient and Database services and layers
     src/database-health-live.ts   # select 1 with a 5 second limit
     src/error-diagnostics.ts      # safe diagnostics from database causes
-    src/database-call.ts          # databaseCalls: bounded calls that fail as a persistence failure
+    src/database-call.ts          # databaseCalls, repositoryCalls: bounded calls that fail as a persistence failure
     src/migrate.ts                # migration entry point
     src/runtime-role.ts           # the API's and worker's role, which migrate provisions
     src/users/schema.ts           # Drizzle table and row schemas
@@ -253,8 +253,9 @@ Errors follow these conventions:
 - Every public error is `{ "error": { "code", "message" } }`, built with
   `publicError(status, code, message)` from `api-schemas.ts`. The code and
   message are literals, so the OpenAPI document lists exactly what a client can
-  receive.
-- Handlers fail with these error schemas rather than building raw responses, so
+  receive. It returns the `schema` an endpoint declares and the `body`, its only
+  value, so the code and message are written once.
+- Handlers fail with an error's `body` rather than building raw responses, so
   HttpApi checks every error against the contract. Domain errors map to their
   feature's responses (`UserNotFound` to 404, `UserAlreadyExists` to 409).
 - A group behind the `RequestValidation` middleware turns schema errors in the
@@ -309,12 +310,13 @@ messages and stacks can contain SQL, parameters, or stored values and must not
 reach handled-error logs. Database-wide extraction lives in
 `packages/database/src/error-diagnostics.ts`. An adapter calls the database
 through `databaseCalls(ErrorClass, timeout)` from
-`packages/database/src/database-call.ts`: its `run` bounds the call and turns
-any failure into the adapter's error for that operation, with those diagnostics,
-and its `rows` does the same and then decodes the rows the query returns.
-Feature adapters own only the mapping from a cause to a domain error, the
-`refine` argument of `run`, such as a unique violation on the email constraint
-to `UserAlreadyExists`.
+`packages/database/src/database-call.ts`, which a repository gets from
+`repositoryCalls(ErrorClass)` with its timeout already set: its `run` bounds the
+call and turns any failure into the adapter's error for that operation, with
+those diagnostics, and its `rows` does the same and then decodes the rows the
+query returns. Feature adapters own only the mapping from a cause to a domain
+error, the `refine` argument of `run`, such as a unique violation on the email
+constraint to `UserAlreadyExists`.
 
 HTTP handlers log a persistence failure's report as log annotations, and keep
 the response generic. The API's access log (`apps/api/src/access-log.ts`)
@@ -369,13 +371,14 @@ session left idle inside a transaction. A statement or lock timeout carries its
 SQLSTATE code (57014, 55P03) in the diagnostics, and a pool wait is a
 `ConnectionError`. PostgreSQL enforces those limits, so they cannot fire when
 the server stops answering. A repository therefore bounds each call itself:
-`databaseCalls` requires a timeout, and a repository passes
-`databaseCallTimeout`, a little longer than the pool wait and the statement
-together. A call that runs out is reported as a `TimeoutError`. Each surfaces as
-an ordinary persistence failure. The one exception is a session PostgreSQL ends
-for idling inside a transaction: its connection goes with it, so the
-transaction's rollback fails and the transaction dies with a defect.
-`packages/database/src/postgres.ts` gives the reason for each value.
+`databaseCalls` requires a timeout, and `repositoryCalls` passes
+`databaseCallTimeout` for the configured statement timeout, a little longer than
+the pool wait and the statement together. A call that runs out is reported as a
+`TimeoutError`. Each surfaces as an ordinary persistence failure. The one
+exception is a session PostgreSQL ends for idling inside a transaction: its
+connection goes with it, so the transaction's rollback fails and the transaction
+dies with a defect. `packages/database/src/postgres.ts` gives the reason for
+each value.
 
 The worker's persistent entry point runs each job on an independent loop, so a
 slow job never delays another, and passes of one job never overlap. The first

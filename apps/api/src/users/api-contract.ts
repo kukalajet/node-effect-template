@@ -46,7 +46,7 @@ const UsersApi = HttpApiGroup.make("users")
     HttpApiEndpoint.get("list", "/users", {
       query: UserListQuery,
       success: UserListResponse,
-      error: DatabaseErrorResponse,
+      error: DatabaseErrorResponse.schema,
     }).annotate(
       OpenApi.Description,
       "Lists users, newest first. `limit` is an integer from 1 to 100 and defaults to 50.",
@@ -54,7 +54,7 @@ const UsersApi = HttpApiGroup.make("users")
     HttpApiEndpoint.get("get", "/users/:id", {
       params: UserParams,
       success: UserSchema,
-      error: [UserNotFoundResponse, DatabaseErrorResponse],
+      error: [UserNotFoundResponse.schema, DatabaseErrorResponse.schema],
     }),
     // The handler reads the body itself (see request-body.ts); `payload` only
     // documents it.
@@ -62,9 +62,9 @@ const UsersApi = HttpApiGroup.make("users")
       payload: CreateUserSchema,
       success: UserSchema.pipe(HttpApiSchema.status(201)),
       error: [
-        PayloadTooLargeResponse,
-        UserAlreadyExistsResponse,
-        DatabaseErrorResponse,
+        PayloadTooLargeResponse.schema,
+        UserAlreadyExistsResponse.schema,
+        DatabaseErrorResponse.schema,
       ],
     }),
   )

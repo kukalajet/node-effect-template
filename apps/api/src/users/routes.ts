@@ -20,17 +20,6 @@ import {
 // display name at up to 4 UTF-8 bytes per character, plus the JSON around them.
 const createUserBodyMaxBytes = 4 * 1024;
 
-const userNotFound = UserNotFoundResponse.make({
-  error: { code: "USER_NOT_FOUND", message: "User not found" },
-});
-
-const userAlreadyExists = UserAlreadyExistsResponse.make({
-  error: {
-    code: "USER_ALREADY_EXISTS",
-    message: "A user with this email already exists",
-  },
-});
-
 const listUsers = ({ limit }: typeof UserListQuery.Type) =>
   Effect.gen(function* () {
     const repository = yield* UserRepository;
@@ -46,7 +35,7 @@ const getUser = ({ id }: typeof UserParams.Type) =>
     return yield* repository.findById(id);
   }).pipe(
     Effect.catchTags({
-      UserNotFound: () => Effect.fail(userNotFound),
+      UserNotFound: () => Effect.fail(UserNotFoundResponse.body),
       UserRepositoryError: databaseFailure,
     }),
   );
@@ -58,7 +47,7 @@ const createUser = Effect.gen(function* () {
   return yield* repository.insert(input);
 }).pipe(
   Effect.catchTags({
-    UserAlreadyExists: () => Effect.fail(userAlreadyExists),
+    UserAlreadyExists: () => Effect.fail(UserAlreadyExistsResponse.body),
     UserRepositoryError: databaseFailure,
   }),
 );

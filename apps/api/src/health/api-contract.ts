@@ -18,11 +18,11 @@ const HealthApi = HttpApiGroup.make("health").add(
   }),
   HttpApiEndpoint.get("ready", "/health/ready", {
     success: ReadinessResponse,
-    error: DatabaseUnavailableResponse,
+    error: DatabaseUnavailableResponse.schema,
   }),
   HttpApiEndpoint.get("readyAlias", "/health", {
     success: ReadinessResponse,
-    error: DatabaseUnavailableResponse,
+    error: DatabaseUnavailableResponse.schema,
   }),
 );
 

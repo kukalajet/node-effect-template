@@ -1,6 +1,9 @@
 import { type Duration, Effect, Schema } from "effect";
 
+import { AppConfig } from "@node-effect/config";
+
 import { diagnosticsFromCause } from "./error-diagnostics.ts";
+import { databaseCallTimeout } from "./postgres.ts";
 
 type FailureProps<Operation extends string> = {
   readonly operation: Operation;
@@ -11,8 +14,8 @@ type FailureProps<Operation extends string> = {
 // How an adapter calls the database: every call is bounded by `timeout`, and
 // fails as `FailureClass` for its operation with diagnostics read from the cause.
 // The timeout is required because PostgreSQL's own limits cannot fire when the
-// server stops answering (see databaseCallTimeout); repositories pass that
-// limit, and readiness a shorter one of its own.
+// server stops answering (see databaseCallTimeout); repositories get that
+// limit from repositoryCalls, and readiness passes a shorter one of its own.
 const databaseCalls = <Operation extends string, Failure>(
   FailureClass: new (props: FailureProps<Operation>) => Failure,
   timeout: Duration.Input,
@@ -68,4 +71,19 @@ const databaseCalls = <Operation extends string, Failure>(
   return { run, rows };
 };
 
-export { databaseCalls };
+// How a repository calls the database: `databaseCalls` bounded by the longest
+// the configured statement timeout and the pool wait allow, so a feature
+// adapter needs neither the configuration nor the limit's formula.
+const repositoryCalls = <Operation extends string, Failure>(
+  FailureClass: new (props: FailureProps<Operation>) => Failure,
+) =>
+  AppConfig.pipe(
+    Effect.map((config) =>
+      databaseCalls(
+        FailureClass,
+        databaseCallTimeout(config.databaseStatementTimeoutMs),
+      ),
+    ),
+  );
+
+export { databaseCalls, repositoryCalls };

@@ -5,7 +5,7 @@ import { BadRequestResponse } from "./api-schemas.ts";
 
 class RequestValidation extends HttpApiMiddleware.Service<RequestValidation>()(
   "@node-effect/api/RequestValidation",
-  { error: BadRequestResponse },
+  { error: BadRequestResponse.schema },
 ) {}
 
 // Request parts the client sent. The other kinds are failures to encode the
@@ -17,17 +17,12 @@ const clientInputKinds = new Set<HttpApiError.HttpApiSchemaError["kind"]>([
   "Payload",
 ]);
 
-const invalidRequest = BadRequestResponse.make({
-  error: {
-    code: "INVALID_REQUEST",
-    message: "The request payload is invalid",
-  },
-});
-
 const RequestValidationLive = HttpApiMiddleware.layerSchemaErrorTransform(
   RequestValidation,
   (error) => {
-    if (clientInputKinds.has(error.kind)) return Effect.fail(invalidRequest);
+    if (clientInputKinds.has(error.kind)) {
+      return Effect.fail(BadRequestResponse.body);
+    }
 
     return Effect.fail(error);
   },

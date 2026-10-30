@@ -10,20 +10,6 @@ import {
   DatabaseUnavailableResponse,
 } from "./api-schemas.ts";
 
-const databaseError = DatabaseErrorResponse.make({
-  error: {
-    code: "DATABASE_ERROR",
-    message: "The database operation could not be completed",
-  },
-});
-
-const databaseUnavailable = DatabaseUnavailableResponse.make({
-  error: {
-    code: "DATABASE_UNAVAILABLE",
-    message: "The database is unavailable",
-  },
-});
-
 // The cause can carry SQL, parameters, and stored values, so only the safe
 // report reaches the log, the same one entry points log, and the response says
 // nothing about the failure.
@@ -35,13 +21,13 @@ const logPersistenceFailure = (message: string, error: PersistenceFailure) =>
 // A failed operation is a server error: 500.
 const databaseFailure = (error: PersistenceFailure) =>
   logPersistenceFailure("Database operation failed", error).pipe(
-    Effect.andThen(Effect.fail(databaseError)),
+    Effect.andThen(Effect.fail(DatabaseErrorResponse.body)),
   );
 
 // A failed readiness check means the database cannot serve traffic: 503.
 const healthFailure = (error: PersistenceFailure) =>
   logPersistenceFailure("Database health check failed", error).pipe(
-    Effect.andThen(Effect.fail(databaseUnavailable)),
+    Effect.andThen(Effect.fail(DatabaseUnavailableResponse.body)),
   );
 
 export { databaseFailure, healthFailure };
