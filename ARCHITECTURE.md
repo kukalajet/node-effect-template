@@ -84,13 +84,14 @@ apps/
   worker/src/
     main.ts                       # persistent polling entry point
     once.ts                       # one pass of every job, then exit
+    job-runner.ts                 # runs a job table: one-shot pass or polling
     worker-runtime.ts             # shared composition, logging, exit codes
     worker-errors.ts              # safe failure reporting
     jobs/
       sample-users.ts             # one job
-      worker-work.ts              # the job table; one pass of every job; the polling loops
+      worker-jobs.ts              # the job table: every job the worker runs
       test/
-    test/                         # failure reporting tests
+    test/                         # job runner and failure reporting tests
 
 packages/
   domain/
@@ -158,8 +159,8 @@ today; ownership, rather than line count, decides the location.
 | What the API logs for each request                                         | `apps/api/src/access-log.ts`                                                                             |
 | Log format, level, or another logger                                       | `packages/config/src/logging.ts`                                                                         |
 | Adapter that the routes need                                               | `apps/api/src/request-services-live.ts`                                                                  |
-| Worker job, or one-shot work                                               | `apps/worker/src/jobs/`, added to `workerJobs` in `worker-work.ts`                                       |
-| Port or adapter that a worker job needs                                    | `WorkerRequirements` and `WorkerServicesLive` in `worker-runtime.ts`                                     |
+| Worker job, or one-shot work                                               | `apps/worker/src/jobs/`, added to `workerJobs` in `worker-jobs.ts`                                       |
+| Adapter that a worker job needs                                            | `WorkerServicesLive` in `worker-runtime.ts`                                                              |
 | Business value, invariant, entity, command, or domain error                | `packages/domain/src/<feature>.ts`                                                                       |
 | Use-case orchestration or outbound service contract                        | `packages/application/src/<feature>/`                                                                    |
 | Repository error                                                           | beside its port, built with `persistenceFailureFields`                                                   |
@@ -380,18 +381,24 @@ connection goes with it, so the transaction's rollback fails and the transaction
 dies with a defect. `packages/database/src/postgres.ts` gives the reason for
 each value.
 
-The worker's persistent entry point runs each job on an independent loop, so a
-slow job never delays another, and passes of one job never overlap. The first
-failure in any loop interrupts the others and fails the process. The worker does
-not retry; its supervisor does (Compose's `restart: unless-stopped` locally and
-in production). A pass that runs longer than `WORKER_PASS_TIMEOUT_MS` is
-interrupted and fails the worker, so a hung pass is restarted too. Passes stay
-interruptible, so SIGTERM can stop one. Either waits only for the driver to
-cancel a query in flight, at most 5 seconds when the server does not answer.
-`once.ts` runs one pass of every job and exits with its result. Both share
-`worker-runtime.ts`. Keep durable workflow execution, when you need it, in
-application contracts and PostgreSQL adapters rather than growing this polling
-example into a runtime.
+Both worker entry points hand the job table, `workerJobs` in
+`jobs/worker-jobs.ts`, to the job runner in `job-runner.ts`. The persistent
+entry point polls: it runs each job on an independent loop, so a slow job never
+delays another, and passes of one job never overlap. The first failure in any
+loop interrupts the others and fails the process. The worker does not retry; its
+supervisor does (Compose's `restart: unless-stopped` locally and in production).
+A pass that runs longer than `WORKER_PASS_TIMEOUT_MS` is interrupted and fails
+the worker, so a hung pass is restarted too. Passes stay interruptible, so
+SIGTERM can stop one. Either waits only for the driver to cancel a query in
+flight, at most 5 seconds when the server does not answer. `once.ts` runs one
+pass of every job, in order, and exits with its result; the first failure ends
+the pass, so later jobs do not run. A job table holds at least one job, which
+the type check enforces: with none, polling would end at once and the supervisor
+would restart the worker forever. Both entry points share `worker-runtime.ts`,
+whose `WorkerServicesLive` must provide every port the jobs need; the type check
+rejects a job whose port has no adapter there. Keep durable workflow execution,
+when you need it, in application contracts and PostgreSQL adapters rather than
+growing this polling example into a runtime.
 
 Neither application performs schema migrations at startup. Locally, the Compose
 `migrate` service runs `packages/database/src/migrate.ts` and the API and worker
@@ -451,6 +458,9 @@ Module mocking fails lint.
   served OpenAPI document equals `OpenApi.fromApi(Api)` and that every operation
   is listed with a unique operation ID. Add each new endpoint to its operation
   list.
+- **Worker tests** run the job runner on synthetic jobs, which need no port, so
+  adding or replacing a job leaves them alone. A job's own test fakes the ports
+  it uses, as `apps/worker/src/jobs/test/sample-users.test.ts` does.
 - **Database adapter unit tests** run the real Drizzle queries, row decoding,
   and error mapping against a fake `PgClient` (`pgClientLayer` and its
   connections in `packages/database/src/test/pg-client.ts`).
