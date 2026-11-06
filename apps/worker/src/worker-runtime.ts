@@ -1,7 +1,6 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Effect, Layer } from "effect";
 
-import type { UserRepository } from "@node-effect/application";
 import { AppConfig, LoggingLive } from "@node-effect/config";
 import {
   DatabaseLive,
@@ -12,16 +11,15 @@ import {
 import { reportWorkerFailure } from "./worker-errors.ts";
 
 // The adapters behind the worker's ports, and AppConfig, built once for both
-// PgClientLive and the program.
+// PgClientLive and the program. Add the adapters a new job's ports need here.
 const WorkerServicesLive = UserRepositoryLive.pipe(
   Layer.provide(DatabaseLive),
   Layer.provide(PgClientLive),
   Layer.provideMerge(AppConfig.layer),
 );
 
-// Everything a worker program may use. Add a job's ports here, and their
-// adapters to WorkerServicesLive.
-type WorkerRequirements = AppConfig | UserRepository;
+// Everything a worker program may use: what WorkerServicesLive provides.
+type WorkerRequirements = Layer.Success<typeof WorkerServicesLive>;
 
 // Runs `program` as the process: 0 when it completes, 1 when it fails, 130
 // when SIGINT or SIGTERM interrupts it. reportWorkerFailure logs failures, so

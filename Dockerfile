@@ -48,6 +48,12 @@ FROM ${NODE_IMAGE} AS runtime
 # vulnerabilities. The base layers still hold the files, so the image is no
 # smaller. `rm` without -f fails the build if the base image moves them.
 RUN rm -r /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+# The pinned base image ships apt 3.0.3, whose CVE-2026-109518 (High) fails the
+# image scan. Debian fixed it in 3.0.4: upgrade apt and its library, and nothing
+# else. Remove this once the base image ships apt 3.0.4 or later.
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 \
+  && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 WORKDIR /app
 # Depending on the check stage keeps failing code out of the image.

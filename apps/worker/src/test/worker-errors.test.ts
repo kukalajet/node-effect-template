@@ -10,9 +10,9 @@ import {
   Runtime,
 } from "effect";
 
-import { UserRepository, UserRepositoryError } from "@node-effect/application";
+import { UserRepositoryError } from "@node-effect/application";
 
-import { pollWorkerWork, processWorkerWorkPass } from "../jobs/worker-work.ts";
+import { pollJobs, runJobsOnce } from "../job-runner.ts";
 import { reportWorkerFailure } from "../worker-errors.ts";
 
 const sentinels = /SECRET_SENTINEL|SQL_SENTINEL|PARAM_SENTINEL/;
@@ -42,7 +42,7 @@ const runWorker = <E>(program: Effect.Effect<void, E>) =>
     runMain(
       Effect.withFiber((fiber) => {
         // Captures the runtime's own reporting too, without changing the
-        // global loggers, and the sample job's Debug line.
+        // global loggers, and a job's Debug line.
         fiber.setContext(
           fiber.context.pipe(
             Context.add(Logger.CurrentLoggers, new Set([logger])),
@@ -66,8 +66,22 @@ const repositoryFailure = () =>
     diagnostics: { reason: "AuthorizationError", code: "42501" },
   });
 
-const listingWith = (list: UserRepository["Service"]["list"]) =>
-  Layer.mock(UserRepository, { list });
+const failingJob = (error: unknown) => ({
+  name: "failing",
+  pass: () => Effect.fail(error),
+});
+
+// A port of the test's own, so a failure can come from building its layer, as
+// a worker's does at startup.
+class JobPort extends Context.Service<
+  JobPort,
+  { readonly run: Effect.Effect<void, unknown> }
+>()("test/JobPort") {}
+
+const portJob = {
+  name: "port",
+  pass: () => JobPort.pipe(Effect.flatMap((port) => port.run)),
+};
 
 const unexpectedError = new Error("UNEXPECTED_FAILURE");
 
@@ -77,8 +91,7 @@ describe("worker failure reporting", () => {
     let finalized = false;
 
     const result = await runWorker(
-      processWorkerWorkPass(60_000).pipe(
-        Effect.provide(listingWith(() => Effect.fail(error))),
+      runJobsOnce([failingJob(error)], 60_000).pipe(
         Effect.ensuring(
           Effect.sync(() => {
             finalized = true;
@@ -105,9 +118,10 @@ describe("worker failure reporting", () => {
 
   it("exits 1 as soon as one polling loop fails", async () => {
     const result = await runWorker(
-      pollWorkerWork({ intervalMs: 60_000, passTimeoutMs: 60_000 }).pipe(
-        Effect.provide(listingWith(() => Effect.fail(repositoryFailure()))),
-      ),
+      pollJobs([failingJob(repositoryFailure())], {
+        intervalMs: 60_000,
+        passTimeoutMs: 60_000,
+      }),
     );
 
     assert.strictEqual(result.code, 1);
@@ -119,21 +133,19 @@ describe("worker failure reporting", () => {
   it("logs a pass that outlives its timeout by its job and exits 1", async () => {
     let interrupted = false;
 
-    const result = await runWorker(
-      processWorkerWorkPass(10).pipe(
-        Effect.provide(
-          listingWith(() =>
-            Effect.never.pipe(
-              Effect.onInterrupt(() =>
-                Effect.sync(() => {
-                  interrupted = true;
-                }),
-              ),
-            ),
+    const stalledJob = {
+      name: "stalled-job",
+      pass: () =>
+        Effect.never.pipe(
+          Effect.onInterrupt(() =>
+            Effect.sync(() => {
+              interrupted = true;
+            }),
           ),
         ),
-      ),
-    );
+    };
+
+    const result = await runWorker(runJobsOnce([stalledJob], 10));
 
     assert.strictEqual(result.code, 1);
     assert.isTrue(interrupted);
@@ -141,16 +153,14 @@ describe("worker failure reporting", () => {
     const line = result.lines.join("");
     assert.match(line, /Worker failed/);
     assert.match(line, /TimeoutError/);
-    assert.match(line, /sample-users ran longer than its 10 ms pass timeout/);
+    assert.match(line, /stalled-job ran longer than its 10 ms pass timeout/);
   });
 
   for (const testCase of [
     {
       name: "startup failure",
-      program: processWorkerWorkPass(60_000).pipe(
-        Effect.provide(
-          Layer.effect(UserRepository, Effect.fail(unexpectedError)),
-        ),
+      program: runJobsOnce([portJob], 60_000).pipe(
+        Effect.provide(Layer.effect(JobPort, Effect.fail(unexpectedError))),
       ),
     },
     { name: "defect", program: Effect.die(unexpectedError) },
@@ -171,18 +181,14 @@ describe("worker failure reporting", () => {
     const cleanupError = new Error("CLEANUP_FAILURE");
 
     const result = await runWorker(
-      processWorkerWorkPass(60_000).pipe(
+      runJobsOnce([portJob], 60_000).pipe(
         Effect.provide(
           Layer.effect(
-            UserRepository,
+            JobPort,
             Effect.gen(function* () {
               yield* Effect.addFinalizer(() => Effect.die(cleanupError));
 
-              return UserRepository.of({
-                insert: () => Effect.fail(error),
-                findById: () => Effect.fail(error),
-                list: () => Effect.fail(error),
-              });
+              return JobPort.of({ run: Effect.fail(error) });
             }),
           ),
         ),
@@ -221,15 +227,16 @@ describe("worker failure reporting", () => {
   });
 
   it("exits 0 after a successful pass, logging only the job's output", async () => {
-    const result = await runWorker(
-      processWorkerWorkPass(60_000).pipe(
-        Effect.provide(listingWith(() => Effect.succeed([]))),
-      ),
-    );
+    const loggingJob = {
+      name: "logging",
+      pass: () => Effect.logDebug("Job pass finished"),
+    };
+
+    const result = await runWorker(runJobsOnce([loggingJob], 60_000));
 
     assert.strictEqual(result.code, 0);
     assert.isTrue(Exit.isSuccess(result.exit));
     assert.lengthOf(result.lines, 1);
-    assert.match(result.lines.join(""), /Worker user sample loaded/);
+    assert.match(result.lines.join(""), /Job pass finished/);
   });
 });
