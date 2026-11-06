@@ -342,8 +342,14 @@ annotates with its service. Keep each reporter paired with `runMain`'s
 `disableErrorReporting: true`, which prevents the runtime from also logging the
 raw cause, as text outside `LoggingLive`. `apps/api/src/test/main.test.ts` runs
 `main.ts` as a process to check that and that Effect's built-in HTTP logger
-stays off, since no module test can see either setting. `LoggingLive` reports
-its own failure, an invalid `LOG_LEVEL`, because nothing outside it can.
+stays off, since no module test can see either setting. The worker's
+`src/test/main.test.ts` and `src/test/once.test.ts`, and the process tests in
+`packages/database/src/test/migrate.test.ts`, run the other entry points the
+same way, without PostgreSQL. They check that a failure, from configuration or
+from a database that refuses connections, is logged once, as JSON, with nothing
+on stderr, and that SIGTERM ends a polling pass in flight with exit 130 and no
+log line. The reporters' own tests run them under a test logger. `LoggingLive`
+reports its own failure, an invalid `LOG_LEVEL`, because nothing outside it can.
 
 `migrate.ts` uses `reportFailure` too, with a redaction of its own:
 `reportFailure(message, { isSensitive, report })` also reduces what
