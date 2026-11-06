@@ -1,9 +1,17 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { PgClient } from "@effect/sql-pg";
 import { assert, describe, it } from "@effect/vitest";
-import { Config, Deferred, Duration, Effect, Fiber, Layer } from "effect";
+import {
+  Config,
+  Deferred,
+  Duration,
+  Effect,
+  Fiber,
+  Layer,
+  Schema,
+} from "effect";
 import { SqlClient } from "effect/sql";
 
 import { diagnosticsFromCause } from "../error-diagnostics.ts";
@@ -11,9 +19,34 @@ import { migrateDatabase } from "../migrate.ts";
 
 import { withEmptyDatabase } from "./migrated-database.fixtures.ts";
 
-const migrationNames = readdirSync(
-  join(import.meta.dirname, "../../../../drizzle"),
-).sort();
+const migrationsFolder = join(import.meta.dirname, "../../../../drizzle");
+
+const migrationNames = readdirSync(migrationsFolder).sort();
+
+// The part of the snapshot drizzle-kit writes beside each migration that lists
+// the schema's entities, tables among them, as of that migration.
+const MigrationSnapshot = Schema.fromJsonString(
+  Schema.Struct({
+    ddl: Schema.Array(
+      Schema.Struct({ entityType: Schema.String, name: Schema.String }),
+    ),
+  }),
+);
+
+// The tables the migrations leave behind, from the latest snapshot, so the
+// check holds whatever tables a project adds or later drops.
+const migratedTableNames = () => {
+  const latest = migrationNames.at(-1);
+  assert.isDefined(latest);
+
+  const snapshot = Schema.decodeUnknownSync(MigrationSnapshot)(
+    readFileSync(join(migrationsFolder, latest, "snapshot.json"), "utf8"),
+  );
+
+  return snapshot.ddl
+    .filter((entity) => entity.entityType === "tables")
+    .map((entity) => entity.name);
+};
 
 // The test schema is first on the search path. Keeping the journal there too
 // isolates it from the shared `drizzle` schema.
@@ -71,10 +104,12 @@ describe("migrateDatabase", () => {
         migrationNames,
       );
 
-      assert.deepStrictEqual(yield* tableNames(schema), [
-        "__drizzle_migrations",
-        "users",
-      ]);
+      const tables = yield* tableNames(schema);
+
+      assert.deepStrictEqual(
+        tables.toSorted(),
+        ["__drizzle_migrations", ...migratedTableNames()].toSorted(),
+      );
     }).pipe(withEmptyDatabase),
   );
 

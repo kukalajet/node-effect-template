@@ -491,6 +491,13 @@ Module mocking fails lint.
   production writes provides `LoggingLive` with a `TestConsole`, as
   `access-log.test.ts` does. Outside tests, lint rejects Effect's
   `Logger.console*` loggers: entry points provide `LoggingLive`.
+- **Tests of generic code** use probes of their own rather than the users
+  example: a `ProbeFailure` built with `persistenceFailureFields`, which
+  `application` exports for them, or the `probe_items` table that the runtime
+  role tests create. `migrate.postgres.ts` reads the tables it expects from the
+  latest migration's snapshot. Replacing users then breaks only users' own
+  tests, `app.test.ts`, the smoke scripts, and `once.test.ts` if the new jobs
+  fail differently.
 
 ## Public imports
 

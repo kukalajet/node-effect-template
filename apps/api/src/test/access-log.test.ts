@@ -1,9 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Console, ConfigProvider, Effect, Layer } from "effect";
+import { Console, ConfigProvider, Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/http";
 import { TestConsole } from "effect/testing";
 
-import { UserRepositoryError } from "@node-effect/application";
+import { persistenceFailureFields } from "@node-effect/application";
 import { LoggingLive } from "@node-effect/config";
 
 import { accessLog } from "../access-log.ts";
@@ -12,8 +12,15 @@ const sentinels = /SECRET_SENTINEL|SQL_SENTINEL|PARAM_SENTINEL/;
 const traceIdPattern = /^[0-9a-f]{32}$/;
 const spanIdPattern = /^[0-9a-f]{16}$/;
 
-const repositoryFailure = new UserRepositoryError({
-  operation: "list",
+// A persistence failure of the test's own, so the test does not depend on the
+// users example.
+class ProbeFailure extends Schema.TaggedError<ProbeFailure>()(
+  "ProbeFailure",
+  persistenceFailureFields(["read", "write"]),
+) {}
+
+const repositoryFailure = new ProbeFailure({
+  operation: "read",
   cause: Object.assign(new Error("SECRET_SENTINEL"), {
     query: "select SQL_SENTINEL",
     params: ["PARAM_SENTINEL"],
@@ -198,8 +205,8 @@ describe("accessLog", () => {
       for (const line of lines) {
         assert.strictEqual(line.level, "ERROR");
         assert.strictEqual(line.annotations.status, 500);
-        assert.include(line.cause, '"_tag":"UserRepositoryError"');
-        assert.include(line.cause, '"operation":"list"');
+        assert.include(line.cause, '"_tag":"ProbeFailure"');
+        assert.include(line.cause, '"operation":"read"');
         assert.include(line.cause, '"code":"57014"');
         assert.notInclude(line.cause, "HttpServerResponse");
       }

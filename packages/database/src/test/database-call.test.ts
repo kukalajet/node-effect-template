@@ -4,11 +4,18 @@ import { Cause, Effect, Fiber, Schema } from "effect";
 import { SqlError } from "effect/sql";
 import { TestClock } from "effect/testing";
 
-import { UserRepositoryError } from "@node-effect/application";
+import { persistenceFailureFields } from "@node-effect/application";
 
 import { databaseCalls } from "../database-call.ts";
 
-const calls = databaseCalls(UserRepositoryError, "1 second");
+// A persistence failure of the test's own, so the test does not depend on the
+// users example.
+class ProbeFailure extends Schema.TaggedError<ProbeFailure>()(
+  "ProbeFailure",
+  persistenceFailureFields(["read", "write"]),
+) {}
+
+const calls = databaseCalls(ProbeFailure, "1 second");
 
 const authorizationError = new SqlError.SqlError({
   reason: new SqlError.AuthorizationError({
@@ -20,7 +27,7 @@ const authorizationError = new SqlError.SqlError({
 // wraps the driver's SqlError in a cause of its own.
 const uniqueViolation = (constraint: string) =>
   new EffectDrizzleQueryError({
-    query: "insert into users",
+    query: "insert into probe_items",
     params: [],
     cause: Cause.fail(
       new SqlError.SqlError({
@@ -33,23 +40,23 @@ const uniqueViolation = (constraint: string) =>
   });
 
 // Domain errors the tests map outcomes to.
-const emailTaken = { _tag: "EmailTaken" } as const;
-const usernameTaken = { _tag: "UsernameTaken" } as const;
+const labelTaken = { _tag: "LabelTaken" } as const;
+const codeTaken = { _tag: "CodeTaken" } as const;
 const notFound = { _tag: "NotFound" } as const;
 
-const EmailRow = Schema.Struct({ email: Schema.String });
-const adaRow = { email: "ada@example.com" };
-const graceRow = { email: "grace@example.com" };
+const LabelRow = Schema.Struct({ label: Schema.String });
+const firstRow = { label: "first" };
+const secondRow = { label: "second" };
 
 describe("databaseCalls", () => {
   it.effect("fails as the operation's failure with safe diagnostics", () =>
     Effect.gen(function* () {
       const failure = yield* calls
-        .run("findById", Effect.fail(authorizationError))
+        .run("read", Effect.fail(authorizationError))
         .pipe(Effect.flip);
 
-      assert.instanceOf(failure, UserRepositoryError);
-      assert.strictEqual(failure.operation, "findById");
+      assert.instanceOf(failure, ProbeFailure);
+      assert.strictEqual(failure.operation, "read");
       assert.strictEqual(failure.cause, authorizationError);
 
       assert.deepStrictEqual(failure.diagnostics, {
@@ -64,24 +71,24 @@ describe("databaseCalls", () => {
     () =>
       Effect.gen(function* () {
         const onUniqueViolation = {
-          users_email_key: () => emailTaken,
-          users_username_key: () => usernameTaken,
+          probe_items_label_key: () => labelTaken,
+          probe_items_code_key: () => codeTaken,
         };
 
-        const byEmail = yield* calls
-          .run("insert", Effect.fail(uniqueViolation("users_email_key")), {
+        const byLabel = yield* calls
+          .run("write", Effect.fail(uniqueViolation("probe_items_label_key")), {
             onUniqueViolation,
           })
           .pipe(Effect.flip);
 
-        const byUsername = yield* calls
-          .run("insert", Effect.fail(uniqueViolation("users_username_key")), {
+        const byCode = yield* calls
+          .run("write", Effect.fail(uniqueViolation("probe_items_code_key")), {
             onUniqueViolation,
           })
           .pipe(Effect.flip);
 
-        assert.strictEqual(byEmail, emailTaken);
-        assert.strictEqual(byUsername, usernameTaken);
+        assert.strictEqual(byLabel, labelTaken);
+        assert.strictEqual(byCode, codeTaken);
       }),
   );
 
@@ -90,13 +97,13 @@ describe("databaseCalls", () => {
     () =>
       Effect.gen(function* () {
         const failure = yield* calls
-          .run("insert", Effect.fail(uniqueViolation("users_pkey")), {
-            onUniqueViolation: { users_email_key: () => emailTaken },
+          .run("write", Effect.fail(uniqueViolation("probe_items_pkey")), {
+            onUniqueViolation: { probe_items_label_key: () => labelTaken },
           })
           .pipe(Effect.flip);
 
-        assert.instanceOf(failure, UserRepositoryError);
-        assert.strictEqual(failure.operation, "insert");
+        assert.instanceOf(failure, ProbeFailure);
+        assert.strictEqual(failure.operation, "write");
 
         assert.deepStrictEqual(failure.diagnostics, {
           reason: "UniqueViolation",
@@ -107,7 +114,7 @@ describe("databaseCalls", () => {
   it.effect("fails a call that outlives its timeout as a TimeoutError", () =>
     Effect.gen(function* () {
       const fiber = yield* calls
-        .run("list", Effect.never)
+        .run("read", Effect.never)
         .pipe(Effect.flip, Effect.forkScoped);
 
       yield* TestClock.adjust("999 millis");
@@ -116,8 +123,8 @@ describe("databaseCalls", () => {
       yield* TestClock.adjust("1 millis");
       const failure = yield* Fiber.join(fiber);
 
-      assert.instanceOf(failure, UserRepositoryError);
-      assert.strictEqual(failure.operation, "list");
+      assert.instanceOf(failure, ProbeFailure);
+      assert.strictEqual(failure.operation, "read");
       assert.deepStrictEqual(failure.diagnostics, { reason: "TimeoutError" });
     }),
   );
@@ -125,22 +132,22 @@ describe("databaseCalls", () => {
   it.effect("one decodes the single row it expects", () =>
     Effect.gen(function* () {
       const row = yield* calls.one(
-        "insert",
-        Effect.succeed([adaRow]),
-        EmailRow,
+        "write",
+        Effect.succeed([firstRow]),
+        LabelRow,
       );
 
-      assert.deepStrictEqual(row, adaRow);
+      assert.deepStrictEqual(row, firstRow);
     }),
   );
 
   it.effect("one reports a missing row as a persistence failure", () =>
     Effect.gen(function* () {
       const failure = yield* calls
-        .one("insert", Effect.succeed([]), EmailRow)
+        .one("write", Effect.succeed([]), LabelRow)
         .pipe(Effect.flip);
 
-      assert.instanceOf(failure, UserRepositoryError);
+      assert.instanceOf(failure, ProbeFailure);
 
       assert.deepStrictEqual(failure.diagnostics, {
         reason: "SchemaError",
@@ -152,7 +159,7 @@ describe("databaseCalls", () => {
   it.effect("one reports a missing row as onMissing's domain error", () =>
     Effect.gen(function* () {
       const error = yield* calls
-        .one("findById", Effect.succeed([]), EmailRow, {
+        .one("read", Effect.succeed([]), LabelRow, {
           onMissing: () => notFound,
         })
         .pipe(Effect.flip);
@@ -164,12 +171,12 @@ describe("databaseCalls", () => {
   it.effect("one reports more than one row as a persistence failure", () =>
     Effect.gen(function* () {
       const failure = yield* calls
-        .one("findById", Effect.succeed([adaRow, graceRow]), EmailRow, {
+        .one("read", Effect.succeed([firstRow, secondRow]), LabelRow, {
           onMissing: () => notFound,
         })
         .pipe(Effect.flip);
 
-      assert.instanceOf(failure, UserRepositoryError);
+      assert.instanceOf(failure, ProbeFailure);
 
       assert.deepStrictEqual(failure.diagnostics, {
         reason: "SchemaError",
@@ -181,12 +188,12 @@ describe("databaseCalls", () => {
   it.effect("many decodes every row with the row schema", () =>
     Effect.gen(function* () {
       const rows = yield* calls.many(
-        "list",
-        Effect.succeed([adaRow, graceRow]),
-        EmailRow,
+        "read",
+        Effect.succeed([firstRow, secondRow]),
+        LabelRow,
       );
 
-      assert.deepStrictEqual(rows, [adaRow, graceRow]);
+      assert.deepStrictEqual(rows, [firstRow, secondRow]);
     }),
   );
 
@@ -195,18 +202,18 @@ describe("databaseCalls", () => {
     () =>
       Effect.gen(function* () {
         const failure = yield* calls
-          .one("insert", Effect.succeed([{}]), EmailRow, {
-            onUniqueViolation: { users_email_key: () => emailTaken },
+          .one("write", Effect.succeed([{}]), LabelRow, {
+            onUniqueViolation: { probe_items_label_key: () => labelTaken },
             onMissing: () => notFound,
           })
           .pipe(Effect.flip);
 
-        assert.instanceOf(failure, UserRepositoryError);
-        assert.strictEqual(failure.operation, "insert");
+        assert.instanceOf(failure, ProbeFailure);
+        assert.strictEqual(failure.operation, "write");
 
         assert.deepStrictEqual(failure.diagnostics, {
           reason: "SchemaError",
-          validationPaths: ["0.email"],
+          validationPaths: ["0.label"],
         });
       }),
   );
