@@ -34,6 +34,6 @@ const runtimeRoleConfig = Config.all({
     "APP_DATABASE_PASSWORD",
   ),
 });
-type RuntimeRole = Config.Success<typeof runtimeRoleConfig>;
+type RuntimeRole = Readonly<Config.Success<typeof runtimeRoleConfig>>;
 
 export { type RuntimeRole, runtimeRoleConfig };

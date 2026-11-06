@@ -3,8 +3,6 @@ import { sql } from "drizzle-orm";
 import { Config, Deferred, Duration, Effect, Fiber, Layer } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { AppConfig } from "@node-effect/config";
-
 import { diagnosticsFromCause } from "../error-diagnostics.ts";
 import {
   Database,
@@ -12,6 +10,8 @@ import {
   MigrationPgClientLive,
   PgClientLive,
 } from "../postgres.ts";
+
+import { testAppConfig } from "./app-config.fixtures.ts";
 
 // PgClientLive's pool size.
 const maxConnections = 10;
@@ -22,19 +22,11 @@ const acquireTestTimeoutMs = 20_000;
 // The test database, with `databaseStatementTimeoutMs` as the statement
 // timeout.
 const appConfigWith = (databaseStatementTimeoutMs: number) =>
-  Layer.effect(
-    AppConfig,
+  Layer.unwrap(
     Effect.gen(function* () {
       const databaseUrl = yield* Config.Redacted("DATABASE_URL");
 
-      return AppConfig.of({
-        databaseUrl,
-        databaseStatementTimeoutMs,
-        apiHost: "127.0.0.1",
-        apiPort: 8000,
-        workerPollIntervalMs: 5000,
-        workerPassTimeoutMs: 60_000,
-      });
+      return testAppConfig({ databaseUrl, databaseStatementTimeoutMs });
     }),
   );
 

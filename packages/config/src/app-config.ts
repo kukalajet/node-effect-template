@@ -1,4 +1,4 @@
-import { Config, Context, Effect, Layer, Redacted, Schema } from "effect";
+import { Config, Context, Layer, Schema } from "effect";
 
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
@@ -31,23 +31,15 @@ const appConfig = Config.all({
   ).pipe(Config.withDefault(60_000)),
 });
 
+// The settings `appConfig` reads, so a new setting is added there only.
+// `Config.all` drops `readonly` from its result; the service keeps it.
 class AppConfig extends Context.Service<
   AppConfig,
-  {
-    readonly databaseUrl: Redacted.Redacted<string>;
-    readonly databaseStatementTimeoutMs: number;
-    readonly apiHost: string;
-    readonly apiPort: number;
-    readonly workerPollIntervalMs: number;
-    readonly workerPassTimeoutMs: number;
-  }
+  Readonly<Config.Success<typeof appConfig>>
 >()("@node-effect/config/AppConfig") {
   // Reads `process.env` through the default ConfigProvider. Tests and tools
   // can replace the provider with `ConfigProvider.layer`.
-  static readonly layer = Layer.effect(
-    AppConfig,
-    Effect.map(appConfig, AppConfig.of),
-  );
+  static readonly layer = Layer.effect(AppConfig, appConfig);
 }
 
 export { AppConfig, appConfig };

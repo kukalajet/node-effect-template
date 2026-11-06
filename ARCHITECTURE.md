@@ -284,7 +284,9 @@ Errors follow these conventions:
   inside them instead of duplicating business constraints.
 - Drizzle tables and generated select/insert row schemas describe persistence.
   They live in `database` and are not the public business model.
-- Configuration schemas describe environment input and live in `config`.
+- Configuration schemas describe environment input and live in `config`. A
+  configuration service's type follows from its `Config`, as `AppConfig`'s does
+  from `appConfig`, so each setting is stated once.
 
 Crossing a boundary should be explicit. Map a database row or transport value to
 the domain representation when their shapes or semantics differ. Do not derive
@@ -477,6 +479,10 @@ Module mocking fails lint.
 - **Database adapter unit tests** run the real Drizzle queries, row decoding,
   and error mapping against a fake `PgClient` (`pgClientLayer` and its
   connections in `packages/database/src/test/pg-client.ts`).
+- **Configuration** in database tests comes from `testAppConfig(overrides)` in
+  `packages/database/src/test/app-config.fixtures.ts`. It gives `appConfig`'s
+  defaults, overridden by only the fields a test varies, and never reads the
+  process environment, so `.env` changes no unit test.
 - **PostgreSQL tests** wrap a test in `withMigratedDatabase(adapterLayer)` from
   `packages/database/src/test/migrated-database.fixtures.ts`. It creates a
   schema with a random name, applies every migration in `drizzle/`, points the
