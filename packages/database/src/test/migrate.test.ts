@@ -1,3 +1,6 @@
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
 import { assert, describe, it } from "@effect/vitest";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Cause, ConfigProvider, Effect, Exit, Logger } from "effect";
@@ -116,4 +119,69 @@ describe("migration failure reporting", () => {
       assert.strictEqual(lineCount, 0);
     }),
   );
+});
+
+// migrate.ts is where its layers, the migration reporter, LoggingLive and
+// runMain's settings meet, and only the process shows how they combine, so
+// these run it as one. Neither needs PostgreSQL.
+const migratePath = fileURLToPath(new URL("../migrate.ts", import.meta.url));
+
+// Port 1 refuses connections at once; the password must never reach the log.
+const unreachableDatabaseUrl =
+  "postgresql://app:SECRET_SENTINEL@127.0.0.1:1/app";
+
+// Runs migrate.ts with only `env`, so neither the shell nor .env changes the
+// result.
+const runMigrate = (env: Record<string, string>) => {
+  const { status, stdout, stderr } = spawnSync(
+    process.execPath,
+    [migratePath],
+    { env, encoding: "utf8" },
+  );
+
+  const lines = stdout
+    .trimEnd()
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line));
+
+  return { status, stdout, stderr, lines };
+};
+
+describe("migrate.ts as a process", () => {
+  it("reports missing role settings once, naming them, and exits 1", () => {
+    const { status, stderr, lines } = runMigrate({
+      DATABASE_URL: unreachableDatabaseUrl,
+    });
+
+    assert.strictEqual(status, 1);
+    assert.strictEqual(stderr, "");
+
+    assert.deepStrictEqual(
+      lines.map((line) => [line.message, line.level]),
+      [["Database migration failed", "ERROR"]],
+    );
+
+    assert.include(lines[0]?.cause, "APP_DATABASE_USER");
+  });
+
+  it("reports a database it cannot reach by its tag and diagnostics, and exits 1", () => {
+    const { status, stdout, stderr, lines } = runMigrate({
+      DATABASE_URL: unreachableDatabaseUrl,
+      APP_DATABASE_USER: "app_runtime",
+      APP_DATABASE_PASSWORD: "PASSWORD_SENTINEL",
+    });
+
+    assert.strictEqual(status, 1);
+    assert.strictEqual(stderr, "");
+
+    assert.deepStrictEqual(
+      lines.map((line) => [line.message, line.level]),
+      [["Database migration failed", "ERROR"]],
+    );
+
+    assert.include(lines[0]?.cause, "SqlError");
+    assert.include(lines[0]?.cause, "ConnectionError");
+    assert.notMatch(stdout, /SECRET_SENTINEL|PASSWORD_SENTINEL/);
+  });
 });
