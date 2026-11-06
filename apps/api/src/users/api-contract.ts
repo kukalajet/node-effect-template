@@ -14,8 +14,13 @@ import {
   PayloadTooLargeResponse,
   publicError,
 } from "../api-schemas.ts";
+import { JsonBodyLimit } from "../request-body.ts";
 
 const UserParams = Schema.Struct({ id: UserId });
+
+// A valid body is under 2 KiB: a 320-character email and a 100-character
+// display name at up to 4 UTF-8 bytes per character, plus the JSON around them.
+const createUserBodyMaxBytes = 4 * 1024;
 
 // The list has no cursor, so `limit` caps what one request can read. A project
 // that needs to page past the cap adds its own pagination.
@@ -56,8 +61,8 @@ const UsersApi = HttpApiGroup.make("users")
       success: UserSchema,
       error: [UserNotFoundResponse.schema, DatabaseErrorResponse.schema],
     }),
-    // The handler reads the body itself (see request-body.ts); `payload` only
-    // documents it.
+    // The handler reads the body itself, at most JsonBodyLimit bytes, and
+    // decodes it with this payload (see request-body.ts).
     HttpApiEndpoint.post("create", "/users", {
       payload: CreateUserSchema,
       success: UserSchema.pipe(HttpApiSchema.status(201)),
@@ -66,7 +71,7 @@ const UsersApi = HttpApiGroup.make("users")
         UserAlreadyExistsResponse.schema,
         DatabaseErrorResponse.schema,
       ],
-    }),
+    }).annotate(JsonBodyLimit, createUserBodyMaxBytes),
   )
   .middleware(RequestValidation);
 
