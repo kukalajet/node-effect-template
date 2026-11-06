@@ -465,10 +465,11 @@ I/O, and `TestClock` from `effect/testing` for timeouts and schedules. Replace a
 service with `Layer.succeed` or `Layer.mock` beside the test that needs it.
 Module mocking fails lint.
 
-- **API tests** build one handler group with `HttpRouter.toWebHandler` and fake
-  services, and check each response with `assertContractResponse`
-  (`apps/api/src/test/contract-response.ts`): the contract must document the
-  operation and status, and the body must match a declared schema.
+- **API tests** serve one handler group with `serveGroup(group, handlers)` from
+  `apps/api/src/test/group-server.fixtures.ts`, given fake services. It checks
+  every response against the contract: the contract must document the route the
+  router matched and the status, and the body must match a schema declared for
+  that status. It disposes of the server when the test finishes.
   `apps/api/src/test/app.test.ts` serves the whole API and checks that the
   served OpenAPI document equals `OpenApi.fromApi(Api)` and that every operation
   is listed with a unique operation ID. Add each new endpoint to its operation

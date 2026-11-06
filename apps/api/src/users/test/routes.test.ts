@@ -1,7 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Logger, Schema } from "effect";
-import { HttpRouter, HttpServer } from "effect/http";
-import { HttpApi, HttpApiBuilder } from "effect/http-api";
+import { Effect, Layer, Schema } from "effect";
 
 import { UserRepository, UserRepositoryError } from "@node-effect/application";
 import {
@@ -12,17 +10,12 @@ import {
 } from "@node-effect/domain";
 
 import { Api } from "../../api-contract.ts";
-import { assertContractResponse } from "../../test/contract-response.ts";
+import { serveGroup } from "../../test/group-server.fixtures.ts";
 import { UserHandlers } from "../routes.ts";
 
-const UsersApi = HttpApi.make(Api.identifier).add(Api.groups.users);
-
-const UserRoutes = HttpApiBuilder.layer(UsersApi).pipe(
-  Layer.provide(UserHandlers),
-  Layer.provide(HttpServer.layerServices),
-  // The routes log repository failures; http-errors.test.ts checks those logs.
-  Layer.provide(Logger.layer([])),
-);
+// Serves the users routes with a repository, checking every response against
+// the users contract.
+const serve = serveGroup(Api.groups.users, UserHandlers);
 
 const userId = Schema.decodeUnknownSync(UserId)(
   "d5b9d3de-fda5-4a78-b8a5-2f3b60634d95",
@@ -79,25 +72,6 @@ const fakeRepository = (overrides: Partial<UserRepository["Service"]> = {}) => {
   return { inserted, layer, listLimits };
 };
 
-// Serves the users routes with `repository`, checking every response against
-// the users contract.
-const serve = (repository: Layer.Layer<UserRepository>) => {
-  const web = HttpRouter.toWebHandler(
-    UserRoutes.pipe(HttpRouter.provideRequest(repository)),
-    { disableLogger: true },
-  );
-
-  return {
-    dispose: web.dispose,
-    fetch: async (request: Request) => {
-      const response = await web.handler(request);
-      await assertContractResponse(UsersApi, request, response);
-
-      return response;
-    },
-  };
-};
-
 const get = (path: string) => new Request(`http://localhost${path}`);
 
 const post = (body: string) =>
@@ -118,31 +92,21 @@ describe("GET /users", () => {
   it("lists up to 50 users when the request sets no limit", async () => {
     const repository = fakeRepository();
     const server = serve(repository.layer);
+    const response = await server.fetch(get("/users"));
 
-    try {
-      const response = await server.fetch(get("/users"));
-
-      assert.strictEqual(response.status, 200);
-      assert.deepStrictEqual(await response.json(), { users: [userJson] });
-      assert.deepStrictEqual(repository.listLimits, [50]);
-    } finally {
-      await server.dispose();
-    }
+    assert.strictEqual(response.status, 200);
+    assert.deepStrictEqual(await response.json(), { users: [userJson] });
+    assert.deepStrictEqual(repository.listLimits, [50]);
   });
 
   for (const limit of [1, 100]) {
     it(`lists up to ${limit} users for limit=${limit}`, async () => {
       const repository = fakeRepository();
       const server = serve(repository.layer);
+      const response = await server.fetch(get(`/users?limit=${limit}`));
 
-      try {
-        const response = await server.fetch(get(`/users?limit=${limit}`));
-
-        assert.strictEqual(response.status, 200);
-        assert.deepStrictEqual(repository.listLimits, [limit]);
-      } finally {
-        await server.dispose();
-      }
+      assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(repository.listLimits, [limit]);
     });
   }
 
@@ -150,16 +114,11 @@ describe("GET /users", () => {
     it(`answers 400 for limit=${limit} without reading users`, async () => {
       const repository = fakeRepository();
       const server = serve(repository.layer);
+      const response = await server.fetch(get(`/users?limit=${limit}`));
 
-      try {
-        const response = await server.fetch(get(`/users?limit=${limit}`));
-
-        assert.strictEqual(response.status, 400);
-        assert.deepStrictEqual(await response.json(), invalidRequest);
-        assert.deepStrictEqual(repository.listLimits, []);
-      } finally {
-        await server.dispose();
-      }
+      assert.strictEqual(response.status, 400);
+      assert.deepStrictEqual(await response.json(), invalidRequest);
+      assert.deepStrictEqual(repository.listLimits, []);
     });
   }
 
@@ -169,64 +128,45 @@ describe("GET /users", () => {
         .layer,
     );
 
-    try {
-      const response = await server.fetch(get("/users"));
+    const response = await server.fetch(get("/users"));
 
-      assert.strictEqual(response.status, 500);
+    assert.strictEqual(response.status, 500);
 
-      assert.deepStrictEqual(await response.json(), {
-        error: {
-          code: "DATABASE_ERROR",
-          message: "The database operation could not be completed",
-        },
-      });
-    } finally {
-      await server.dispose();
-    }
+    assert.deepStrictEqual(await response.json(), {
+      error: {
+        code: "DATABASE_ERROR",
+        message: "The database operation could not be completed",
+      },
+    });
   });
 });
 
 describe("GET /users/:id", () => {
   it("returns the user", async () => {
     const server = serve(fakeRepository().layer);
+    const response = await server.fetch(get(`/users/${userId}`));
 
-    try {
-      const response = await server.fetch(get(`/users/${userId}`));
-
-      assert.strictEqual(response.status, 200);
-      assert.deepStrictEqual(await response.json(), userJson);
-    } finally {
-      await server.dispose();
-    }
+    assert.strictEqual(response.status, 200);
+    assert.deepStrictEqual(await response.json(), userJson);
   });
 
   it("answers 404 for an unknown id", async () => {
     const server = serve(fakeRepository().layer);
+    const response = await server.fetch(get(`/users/${unknownUserId}`));
 
-    try {
-      const response = await server.fetch(get(`/users/${unknownUserId}`));
+    assert.strictEqual(response.status, 404);
 
-      assert.strictEqual(response.status, 404);
-
-      assert.deepStrictEqual(await response.json(), {
-        error: { code: "USER_NOT_FOUND", message: "User not found" },
-      });
-    } finally {
-      await server.dispose();
-    }
+    assert.deepStrictEqual(await response.json(), {
+      error: { code: "USER_NOT_FOUND", message: "User not found" },
+    });
   });
 
   it("answers 400 for an id that is not a UUID", async () => {
     const server = serve(fakeRepository().layer);
+    const response = await server.fetch(get("/users/not-a-uuid"));
 
-    try {
-      const response = await server.fetch(get("/users/not-a-uuid"));
-
-      assert.strictEqual(response.status, 400);
-      assert.deepStrictEqual(await response.json(), invalidRequest);
-    } finally {
-      await server.dispose();
-    }
+    assert.strictEqual(response.status, 400);
+    assert.deepStrictEqual(await response.json(), invalidRequest);
   });
 });
 
@@ -235,30 +175,26 @@ describe("POST /users", () => {
     const repository = fakeRepository();
     const server = serve(repository.layer);
 
-    try {
-      const response = await server.fetch(
-        post(
-          JSON.stringify({
-            email: "  grace@example.com ",
-            displayName: "Grace Hopper",
-          }),
-        ),
-      );
+    const response = await server.fetch(
+      post(
+        JSON.stringify({
+          email: "  grace@example.com ",
+          displayName: "Grace Hopper",
+        }),
+      ),
+    );
 
-      assert.strictEqual(response.status, 201);
+    assert.strictEqual(response.status, 201);
 
-      assert.deepStrictEqual(await response.json(), {
-        ...userJson,
-        email: "grace@example.com",
-        displayName: "Grace Hopper",
-      });
+    assert.deepStrictEqual(await response.json(), {
+      ...userJson,
+      email: "grace@example.com",
+      displayName: "Grace Hopper",
+    });
 
-      assert.deepStrictEqual(repository.inserted, [
-        { email: "grace@example.com", displayName: "Grace Hopper" },
-      ]);
-    } finally {
-      await server.dispose();
-    }
+    assert.deepStrictEqual(repository.inserted, [
+      { email: "grace@example.com", displayName: "Grace Hopper" },
+    ]);
   });
 
   it("answers 409 when the email is taken", async () => {
@@ -269,22 +205,18 @@ describe("POST /users", () => {
       }).layer,
     );
 
-    try {
-      const response = await server.fetch(
-        post(JSON.stringify({ email: user.email, displayName: "Ada" })),
-      );
+    const response = await server.fetch(
+      post(JSON.stringify({ email: user.email, displayName: "Ada" })),
+    );
 
-      assert.strictEqual(response.status, 409);
+    assert.strictEqual(response.status, 409);
 
-      assert.deepStrictEqual(await response.json(), {
-        error: {
-          code: "USER_ALREADY_EXISTS",
-          message: "A user with this email already exists",
-        },
-      });
-    } finally {
-      await server.dispose();
-    }
+    assert.deepStrictEqual(await response.json(), {
+      error: {
+        code: "USER_ALREADY_EXISTS",
+        message: "A user with this email already exists",
+      },
+    });
   });
 
   it("answers 500 without details when the insert fails", async () => {
@@ -294,15 +226,11 @@ describe("POST /users", () => {
       }).layer,
     );
 
-    try {
-      const response = await server.fetch(
-        post(JSON.stringify({ email: user.email, displayName: "Ada" })),
-      );
+    const response = await server.fetch(
+      post(JSON.stringify({ email: user.email, displayName: "Ada" })),
+    );
 
-      assert.strictEqual(response.status, 500);
-    } finally {
-      await server.dispose();
-    }
+    assert.strictEqual(response.status, 500);
   });
 
   for (const { name, body } of [
@@ -340,16 +268,11 @@ describe("POST /users", () => {
     it(`answers 400 for ${name} without inserting`, async () => {
       const repository = fakeRepository();
       const server = serve(repository.layer);
+      const response = await server.fetch(post(body));
 
-      try {
-        const response = await server.fetch(post(body));
-
-        assert.strictEqual(response.status, 400);
-        assert.deepStrictEqual(await response.json(), invalidRequest);
-        assert.deepStrictEqual(repository.inserted, []);
-      } finally {
-        await server.dispose();
-      }
+      assert.strictEqual(response.status, 400);
+      assert.deepStrictEqual(await response.json(), invalidRequest);
+      assert.deepStrictEqual(repository.inserted, []);
     });
   }
 
@@ -357,28 +280,24 @@ describe("POST /users", () => {
     const repository = fakeRepository();
     const server = serve(repository.layer);
 
-    try {
-      const response = await server.fetch(
-        post(
-          JSON.stringify({
-            email: user.email,
-            displayName: "a".repeat(8 * 1024),
-          }),
-        ),
-      );
+    const response = await server.fetch(
+      post(
+        JSON.stringify({
+          email: user.email,
+          displayName: "a".repeat(8 * 1024),
+        }),
+      ),
+    );
 
-      assert.strictEqual(response.status, 413);
+    assert.strictEqual(response.status, 413);
 
-      assert.deepStrictEqual(await response.json(), {
-        error: {
-          code: "PAYLOAD_TOO_LARGE",
-          message: "The request payload is too large",
-        },
-      });
+    assert.deepStrictEqual(await response.json(), {
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "The request payload is too large",
+      },
+    });
 
-      assert.deepStrictEqual(repository.inserted, []);
-    } finally {
-      await server.dispose();
-    }
+    assert.deepStrictEqual(repository.inserted, []);
   });
 });
