@@ -5,6 +5,16 @@ the terms its code and documents use.
 
 ## Language
 
+### Persistence
+
+**Persistence failure**: A repository error for an operation the database could
+not complete, such as after a lost connection, a timeout, or stored data that no
+longer decodes. _Avoid_: database error
+
+**Domain error**: An expected outcome of an operation that a caller can act on,
+such as a user that does not exist or an email that is already taken. _Avoid_:
+business exception
+
 ### Worker
 
 **Job**: A named piece of recurring work the worker does. _Avoid_: task, worker

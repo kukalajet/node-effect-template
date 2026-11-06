@@ -1,6 +1,6 @@
 import { PgClient } from "@effect/sql-pg";
 import { Effect, Stream } from "effect";
-import { SqlClient, type SqlConnection } from "effect/sql";
+import { SqlClient, type SqlConnection, type SqlError } from "effect/sql";
 
 // A PgClient whose queries go to `acquirer` instead of PostgreSQL, so adapter
 // tests exercise the real Drizzle queries, row decoding, and error mapping.
@@ -54,6 +54,25 @@ const connectionWithRows = (
   };
 };
 
+// A connection that fails every query with `error`, as the driver reports it;
+// Drizzle then wraps it as it wraps a real one.
+const connectionFailingWith = (
+  error: SqlError.SqlError,
+): SqlConnection.Connection => {
+  const unexpectedQuery = Effect.die(
+    new Error("Unexpected SQL execution mode"),
+  );
+
+  return {
+    execute: () => unexpectedQuery,
+    executeRaw: () => unexpectedQuery,
+    executeStream: () => Stream.fromEffect(unexpectedQuery),
+    executeValues: () => Effect.fail(error),
+    executeValuesUnprepared: () => unexpectedQuery,
+    executeUnprepared: () => unexpectedQuery,
+  };
+};
+
 // A connection that accepts every query and never answers it.
 const stalledConnection: SqlConnection.Connection = {
   execute: () => Effect.never,
@@ -64,4 +83,9 @@ const stalledConnection: SqlConnection.Connection = {
   executeUnprepared: () => Effect.never,
 };
 
-export { connectionWithRows, pgClientLayer, stalledConnection };
+export {
+  connectionFailingWith,
+  connectionWithRows,
+  pgClientLayer,
+  stalledConnection,
+};
