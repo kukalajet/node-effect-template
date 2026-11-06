@@ -52,7 +52,10 @@ const withRoleName = <A, E, R>(use: (name: string) => Effect.Effect<A, E, R>) =>
 type Schemas = { readonly tables: string; readonly journal: string };
 
 // Applies the migrations to the test's schema and keeps their journal in a
-// schema of its own, as production keeps it in `drizzle`.
+// schema of its own, as production keeps it in `drizzle`. The migrations'
+// tables belong to the project's features, so the checks below run on
+// probe_items, which is created next to them, before any role is provisioned,
+// with a sequence as a serial column has.
 const withMigrations = <A, E, R>(
   use: (schemas: Schemas) => Effect.Effect<A, E, R>,
 ) =>
@@ -68,7 +71,17 @@ const withMigrations = <A, E, R>(
     return yield* Effect.acquireUseRelease(
       sql`create schema ${sql(journal)}`,
       () =>
-        migrateDatabase(journal).pipe(Effect.andThen(use({ tables, journal }))),
+        migrateDatabase(journal).pipe(
+          Effect.andThen(
+            sql`
+              create table ${sql(tables)}.probe_items (
+                id bigserial primary key,
+                label text not null
+              )
+            `,
+          ),
+          Effect.andThen(use({ tables, journal })),
+        ),
       () => sql`drop schema ${sql(journal)} cascade`.pipe(Effect.orDie),
     );
   });
@@ -129,23 +142,19 @@ describe("provisionRuntimeRole", () => {
 
             const result = yield* asRole(role, (session) =>
               Effect.gen(function* () {
-                const users = session`${session(tables)}.users`;
+                const items = session`${session(tables)}.probe_items`;
                 const notes = session`${session(tables)}.notes`;
 
-                yield* session`
-                  insert into ${users} (email, display_name)
-                  values ('ada@example.com', 'Ada')
-                `;
+                yield* session`insert into ${items} (label) values ('first')`;
+                yield* session`update ${items} set label = 'renamed'`;
 
-                yield* session`update ${users} set display_name = 'Ada L.'`;
+                const labels = yield* session<{
+                  readonly label: string;
+                }>`select label from ${items}`;
 
-                const names = yield* session<{
-                  readonly display_name: string;
-                }>`select display_name from ${users}`;
+                yield* session`delete from ${items}`;
 
-                yield* session`delete from ${users}`;
-
-                const remaining = yield* session`select id from ${users}`;
+                const remaining = yield* session`select id from ${items}`;
 
                 const note = yield* session<{ readonly id: bigint }>`
                   insert into ${notes} (body) values ('later') returning id
@@ -153,14 +162,14 @@ describe("provisionRuntimeRole", () => {
 
                 yield* session`select lo_from_bytea(0, 'owned by the role')`;
 
-                return { names, remaining, note };
+                return { labels, remaining, note };
               }),
             );
 
             // A large object the role created leaves it safe to provision.
             yield* provisionRuntimeRole(role, tables);
 
-            assert.deepStrictEqual(result.names, [{ display_name: "Ada L." }]);
+            assert.deepStrictEqual(result.labels, [{ label: "renamed" }]);
             assert.lengthOf(result.remaining, 0);
             assert.deepStrictEqual(result.note, [{ id: 1n }]);
           }),
@@ -193,17 +202,17 @@ describe("provisionRuntimeRole", () => {
             );
 
             const refusals = yield* asRole(role, (session) => {
-              const users = session`${session(tables)}.users`;
+              const items = session`${session(tables)}.probe_items`;
 
               const attempts = {
                 createTable: session`
                   create table ${session(tables)}.intruder (id integer)
                 `,
                 alterTable: session`
-                  alter table ${users} add column intruder text
+                  alter table ${items} add column intruder text
                 `,
-                dropTable: session`drop table ${users}`,
-                truncate: session`truncate ${users}`,
+                dropTable: session`drop table ${items}`,
+                truncate: session`truncate ${items}`,
                 readJournal: session`
                   select * from ${session(journal)}.__drizzle_migrations
                 `,
@@ -263,7 +272,7 @@ describe("provisionRuntimeRole", () => {
             `;
 
             assert.lengthOf(memberships, 0);
-            assert.include(yield* tableNames(tables), "users");
+            assert.include(yield* tableNames(tables), "probe_items");
           }),
         ),
       ).pipe(withEmptyDatabase),
@@ -387,9 +396,9 @@ describe("provisionRuntimeRole", () => {
           const inserted = yield* asRole(
             role,
             (session) => session`
-              insert into ${session(tables)}.users (email, display_name)
-              values ('ada@example.com', 'Ada')
-              returning email
+              insert into ${session(tables)}.probe_items (label)
+              values ('first')
+              returning label
             `,
           );
 
@@ -398,7 +407,7 @@ describe("provisionRuntimeRole", () => {
             where setrole = (select oid from pg_roles where rolname = ${name})
           `;
 
-          assert.deepStrictEqual(inserted, [{ email: "ada@example.com" }]);
+          assert.deepStrictEqual(inserted, [{ label: "first" }]);
           assert.lengthOf(settings, 0);
         }),
       ),
@@ -413,7 +422,7 @@ describe("provisionRuntimeRole", () => {
           Effect.gen(function* () {
             const sql = yield* ownerSql;
             const role = { name, password: Redacted.make("runtime-password") };
-            const users = sql`${sql(tables)}.users`;
+            const items = sql`${sql(tables)}.probe_items`;
 
             const { owner } = firstRow(
               yield* sql<{ readonly owner: string }>`
@@ -447,8 +456,8 @@ describe("provisionRuntimeRole", () => {
               },
               {
                 reason: /owns database objects/,
-                grant: sql`alter table ${users} owner to ${sql(name)}`,
-                revoke: sql`alter table ${users} owner to ${sql(owner)}`,
+                grant: sql`alter table ${items} owner to ${sql(name)}`,
+                revoke: sql`alter table ${items} owner to ${sql(owner)}`,
               },
             ];
 
@@ -482,11 +491,11 @@ describe("provisionRuntimeRole", () => {
   it.live("stores a hostile password as it is and quotes a hostile name", () =>
     withRoleName((name) => {
       // Not a name the configuration accepts: this checks the SQL itself.
-      const hostileName = `${name}"; drop table users; --`;
+      const hostileName = `${name}"; drop table probe_items; --`;
 
       const role = {
         name: hostileName,
-        password: Redacted.make(`it's"; drop table users; -- $$ \\ %L`),
+        password: Redacted.make(`it's"; drop table probe_items; -- $$ \\ %L`),
       };
 
       return withMigrations(({ tables }) =>
@@ -495,18 +504,18 @@ describe("provisionRuntimeRole", () => {
 
           yield* provisionRuntimeRole(role, tables);
 
-          const users = yield* asRole(
+          const items = yield* asRole(
             role,
-            (session) => session`select id from ${session(tables)}.users`,
+            (session) => session`select id from ${session(tables)}.probe_items`,
           );
 
           const roles = yield* sql<{ readonly rolname: string }>`
             select rolname from pg_roles where rolname like ${`${name}%`}
           `;
 
-          assert.lengthOf(users, 0);
+          assert.lengthOf(items, 0);
           assert.deepStrictEqual(roles, [{ rolname: hostileName }]);
-          assert.include(yield* tableNames(tables), "users");
+          assert.include(yield* tableNames(tables), "probe_items");
         }),
       ).pipe(Effect.ensuring(dropRole(hostileName)));
     }).pipe(withEmptyDatabase),

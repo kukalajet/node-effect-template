@@ -58,9 +58,13 @@ describe("apps/worker/src/once.ts", () => {
       [["Worker failed", "ERROR"]],
     );
 
-    assert.include(lines[0]?.cause, "UserRepositoryError");
-    assert.include(lines[0]?.cause, "ConnectionError");
-    assert.include(lines[0]?.cause, "ECONNREFUSED");
+    // The table's own jobs decide which repository error it is; any of them
+    // carries these diagnostics.
+    assert.include(
+      lines[0]?.cause,
+      '"diagnostics":{"reason":"ConnectionError","code":"ECONNREFUSED"}',
+    );
+
     assert.notInclude(stdout, "SECRET_SENTINEL");
   });
 });

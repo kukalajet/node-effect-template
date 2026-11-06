@@ -1,12 +1,22 @@
 import { assert, describe, it } from "@effect/vitest";
-import { type Cause, Effect, Logger } from "effect";
+import { type Cause, Effect, Logger, Schema } from "effect";
 
-import { reportFailure, UserRepositoryError } from "@node-effect/application";
+import {
+  persistenceFailureFields,
+  reportFailure,
+} from "@node-effect/application";
 
 const sentinels = /SECRET_SENTINEL|SQL_SENTINEL|PARAM_SENTINEL/;
 
-const repositoryFailure = new UserRepositoryError({
-  operation: "list",
+// A persistence failure of the test's own, so the test does not depend on the
+// users example.
+class ProbeFailure extends Schema.TaggedError<ProbeFailure>()(
+  "ProbeFailure",
+  persistenceFailureFields(["read", "write"]),
+) {}
+
+const repositoryFailure = new ProbeFailure({
+  operation: "read",
   cause: Object.assign(new Error("SECRET_SENTINEL"), {
     query: "select SQL_SENTINEL",
     params: ["PARAM_SENTINEL"],
@@ -53,7 +63,7 @@ describe("reportFailure", () => {
 
         const output = JSON.stringify(lines);
 
-        assert.include(output, "UserRepositoryError");
+        assert.include(output, "ProbeFailure");
         assert.include(output, "ECONNREFUSED");
         assert.notMatch(output, sentinels);
       }

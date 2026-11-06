@@ -3,6 +3,7 @@ export { DatabaseHealth, DatabaseHealthError } from "./src/database-health.ts";
 export {
   isPersistenceFailure,
   type PersistenceFailure,
+  persistenceFailureFields,
   persistenceFailureReport,
   redactPersistenceFailures,
   reportFailure,

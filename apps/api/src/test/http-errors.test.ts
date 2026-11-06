@@ -1,15 +1,22 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Logger } from "effect";
+import { Effect, Logger, Schema } from "effect";
 
 import {
   DatabaseHealthError,
   type PersistenceFailure,
-  UserRepositoryError,
+  persistenceFailureFields,
 } from "@node-effect/application";
 
 import { databaseFailure, healthFailure } from "../http-errors.ts";
 
 const sentinels = /SECRET_SENTINEL|SQL_SENTINEL|PARAM_SENTINEL/;
+
+// A persistence failure of the test's own, so the test does not depend on the
+// users example.
+class ProbeFailure extends Schema.TaggedError<ProbeFailure>()(
+  "ProbeFailure",
+  persistenceFailureFields(["read", "write"]),
+) {}
 
 // A raw cause carrying what must never reach a log line.
 const sensitiveCause = () =>
@@ -30,10 +37,10 @@ const failureCases: ReadonlyArray<FailureCase> = [
   {
     name: "databaseFailure",
     handle: databaseFailure,
-    error: new UserRepositoryError({
-      operation: "list",
+    error: new ProbeFailure({
+      operation: "read",
       cause: sensitiveCause(),
-      diagnostics: { reason: "SchemaError", validationPaths: ["email"] },
+      diagnostics: { reason: "SchemaError", validationPaths: ["0.label"] },
     }),
     body: {
       error: {

@@ -7,12 +7,20 @@ import {
   Layer,
   Logger,
   References,
+  Schema,
 } from "effect";
 
-import { UserRepositoryError } from "@node-effect/application";
+import { persistenceFailureFields } from "@node-effect/application";
 
 import { pollJobs, runJobsOnce } from "../job-runner.ts";
 import { reportWorkerFailure } from "../worker-errors.ts";
+
+// A persistence failure of the test's own, so the test does not depend on the
+// users example.
+class ProbeFailure extends Schema.TaggedError<ProbeFailure>()(
+  "ProbeFailure",
+  persistenceFailureFields(["read", "write"]),
+) {}
 
 const sentinels = /SECRET_SENTINEL|SQL_SENTINEL|PARAM_SENTINEL/;
 
@@ -41,8 +49,8 @@ const runReported = <E>(program: Effect.Effect<void, E>) =>
   });
 
 const repositoryFailure = () =>
-  new UserRepositoryError({
-    operation: "list",
+  new ProbeFailure({
+    operation: "read",
     cause: Object.assign(new Error("SECRET_SENTINEL"), {
       query: "select SQL_SENTINEL",
       params: ["PARAM_SENTINEL"],
@@ -94,7 +102,7 @@ describe("worker failure reporting", () => {
       assert.strictEqual(log.level, "ERROR");
       assert.strictEqual(log.message, "Worker failed");
       assert.deepStrictEqual(log.annotations, { service: "worker" });
-      assert.match(line, /UserRepositoryError/);
+      assert.match(line, /ProbeFailure/);
       assert.match(line, /AuthorizationError/);
       assert.match(line, /42501/);
       assert.notMatch(line, sentinels);
