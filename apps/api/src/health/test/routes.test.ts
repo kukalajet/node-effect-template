@@ -1,21 +1,17 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Logger } from "effect";
-import { HttpRouter, HttpServer } from "effect/http";
-import { HttpApi, HttpApiBuilder } from "effect/http-api";
+import { Effect, Layer } from "effect";
 
 import { DatabaseHealth, DatabaseHealthError } from "@node-effect/application";
 
 import { Api } from "../../api-contract.ts";
-import { assertContractResponse } from "../../test/contract-response.ts";
+import { serveGroup } from "../../test/group-server.fixtures.ts";
 import { HealthHandlers } from "../routes.ts";
 
-const HealthApi = HttpApi.make(Api.identifier).add(Api.groups.health);
+// Serves the health routes with a database health check, checking every
+// response against the health contract.
+const serve = serveGroup(Api.groups.health, HealthHandlers);
 
-const HealthRoutes = HttpApiBuilder.layer(HealthApi).pipe(
-  Layer.provide(HealthHandlers),
-  Layer.provide(HttpServer.layerServices),
-  Layer.provide(Logger.layer([])),
-);
+const get = (path: string) => new Request(`http://localhost${path}`);
 
 const databaseUnavailable = new DatabaseHealthError({
   operation: "check",
@@ -39,24 +35,6 @@ const databaseHealth = (available: boolean) => {
   return { health, layer };
 };
 
-const serve = (health: Layer.Layer<DatabaseHealth>) => {
-  const web = HttpRouter.toWebHandler(
-    HealthRoutes.pipe(HttpRouter.provideRequest(health)),
-    { disableLogger: true },
-  );
-
-  return {
-    dispose: web.dispose,
-    fetch: async (path: string) => {
-      const request = new Request(`http://localhost${path}`);
-      const response = await web.handler(request);
-      await assertContractResponse(HealthApi, request, response);
-
-      return response;
-    },
-  };
-};
-
 describe("health routes", () => {
   for (const available of [true, false]) {
     const state = available ? "available" : "down";
@@ -64,16 +42,11 @@ describe("health routes", () => {
     it(`liveness answers 200 without the database while it is ${state}`, async () => {
       const database = databaseHealth(available);
       const server = serve(database.layer);
+      const response = await server.fetch(get("/health/live"));
 
-      try {
-        const response = await server.fetch("/health/live");
-
-        assert.strictEqual(response.status, 200);
-        assert.deepStrictEqual(await response.json(), { status: "ok" });
-        assert.strictEqual(database.health.checks, 0);
-      } finally {
-        await server.dispose();
-      }
+      assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(await response.json(), { status: "ok" });
+      assert.strictEqual(database.health.checks, 0);
     });
   }
 
@@ -81,43 +54,33 @@ describe("health routes", () => {
     it(`${path} answers 200 when the database is available`, async () => {
       const database = databaseHealth(true);
       const server = serve(database.layer);
+      const response = await server.fetch(get(path));
 
-      try {
-        const response = await server.fetch(path);
+      assert.strictEqual(response.status, 200);
 
-        assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(await response.json(), {
+        status: "ok",
+        database: "ok",
+      });
 
-        assert.deepStrictEqual(await response.json(), {
-          status: "ok",
-          database: "ok",
-        });
-
-        assert.strictEqual(database.health.checks, 1);
-      } finally {
-        await server.dispose();
-      }
+      assert.strictEqual(database.health.checks, 1);
     });
 
     it(`${path} answers 503 when the database is down`, async () => {
       const database = databaseHealth(false);
       const server = serve(database.layer);
+      const response = await server.fetch(get(path));
 
-      try {
-        const response = await server.fetch(path);
+      assert.strictEqual(response.status, 503);
 
-        assert.strictEqual(response.status, 503);
+      assert.deepStrictEqual(await response.json(), {
+        error: {
+          code: "DATABASE_UNAVAILABLE",
+          message: "The database is unavailable",
+        },
+      });
 
-        assert.deepStrictEqual(await response.json(), {
-          error: {
-            code: "DATABASE_UNAVAILABLE",
-            message: "The database is unavailable",
-          },
-        });
-
-        assert.strictEqual(database.health.checks, 1);
-      } finally {
-        await server.dispose();
-      }
+      assert.strictEqual(database.health.checks, 1);
     });
   }
 });
