@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Config, Effect, Layer, Redacted } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { AppConfig } from "@node-effect/config";
+import type { AppConfig } from "@node-effect/config";
 
 import {
   type Database,
@@ -12,6 +12,8 @@ import {
   MigrationPgClientLive,
   PgClientLive,
 } from "../postgres.ts";
+
+import { testAppConfig } from "./app-config.fixtures.ts";
 
 const migrationsRoot = join(import.meta.dirname, "../../../../drizzle");
 
@@ -77,17 +79,9 @@ const testDatabase = (
       const databaseUrl = yield* Config.String("DATABASE_URL");
       const schemaName = `test_${crypto.randomUUID().replaceAll("-", "")}`;
 
-      const config = Layer.succeed(
-        AppConfig,
-        AppConfig.of({
-          databaseUrl: Redacted.make(withSearchPath(databaseUrl, schemaName)),
-          databaseStatementTimeoutMs: 10_000,
-          apiHost: "127.0.0.1",
-          apiPort: 8000,
-          workerPollIntervalMs: 5000,
-          workerPassTimeoutMs: 60_000,
-        }),
-      );
+      const config = testAppConfig({
+        databaseUrl: Redacted.make(withSearchPath(databaseUrl, schemaName)),
+      });
 
       return Layer.mergeAll(
         DatabaseLive,

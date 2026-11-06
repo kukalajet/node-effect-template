@@ -1,15 +1,23 @@
-import { ConfigProvider, Layer } from "effect";
+import { ConfigProvider, type Context, Effect, Layer } from "effect";
 
-import { AppConfig } from "@node-effect/config";
+import { AppConfig, appConfig } from "@node-effect/config";
 
-// AppConfig as the environment gives it: its defaults, overridden by `env`,
-// with a database URL that adapter unit tests never connect to.
-const testAppConfig = (env: Record<string, string> = {}) =>
-  AppConfig.layer.pipe(
+// AppConfig with `appConfig`'s defaults, overridden by `overrides`, and a
+// database URL that adapter unit tests never connect to. It never reads the
+// process environment, so `.env` changes no test.
+const testAppConfig = (
+  overrides: Partial<Context.Service.Shape<typeof AppConfig>> = {},
+) =>
+  Layer.effect(
+    AppConfig,
+    Effect.map(appConfig, (defaults) =>
+      AppConfig.of({ ...defaults, ...overrides }),
+    ),
+  ).pipe(
     Layer.provide(
       ConfigProvider.layer(
         ConfigProvider.fromEnv({
-          env: { DATABASE_URL: "postgresql://unused", ...env },
+          env: { DATABASE_URL: "postgresql://unused" },
         }),
       ),
     ),

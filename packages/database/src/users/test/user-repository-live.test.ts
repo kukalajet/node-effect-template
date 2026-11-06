@@ -30,7 +30,7 @@ const repositoryWithRows = (rows: ReadonlyArray<ReadonlyArray<unknown>>) =>
 const stalledRepository = UserRepositoryLive.pipe(
   Layer.provide(DatabaseLive),
   Layer.provide(pgClientLayer(Effect.succeed(stalledConnection))),
-  Layer.provide(testAppConfig({ DATABASE_STATEMENT_TIMEOUT_MS: "1000" })),
+  Layer.provide(testAppConfig({ databaseStatementTimeoutMs: 1000 })),
 );
 
 const stalledCallLimitMs = 8000;

@@ -5,9 +5,9 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer, Redacted } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { AppConfig } from "@node-effect/config";
-
 import { PgClientLive } from "../postgres.ts";
+
+import { testAppConfig } from "./app-config.fixtures.ts";
 
 const listeningPort = (server: Server) => {
   const address = server.address();
@@ -53,19 +53,11 @@ const countingServer = Effect.acquireRelease(
 const pgClientFor = (port: number) =>
   PgClientLive.pipe(
     Layer.provide(
-      Layer.succeed(
-        AppConfig,
-        AppConfig.of({
-          databaseUrl: Redacted.make(
-            `postgresql://test:test@127.0.0.1:${port}/test`,
-          ),
-          databaseStatementTimeoutMs: 10_000,
-          apiHost: "127.0.0.1",
-          apiPort: 8000,
-          workerPollIntervalMs: 5000,
-          workerPassTimeoutMs: 60_000,
-        }),
-      ),
+      testAppConfig({
+        databaseUrl: Redacted.make(
+          `postgresql://test:test@127.0.0.1:${port}/test`,
+        ),
+      }),
     ),
   );
 

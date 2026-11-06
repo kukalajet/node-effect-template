@@ -8,7 +8,6 @@ import {
   UserRepository,
   UserRepositoryError,
 } from "@node-effect/application";
-import { AppConfig } from "@node-effect/config";
 
 import { DatabaseHealthLive } from "../../database-health-live.ts";
 import {
@@ -16,6 +15,7 @@ import {
   DatabaseLive,
   PgClientLive,
 } from "../../postgres.ts";
+import { testAppConfig } from "../../test/app-config.fixtures.ts";
 import { pausableProxy } from "../../test/pausable-proxy.ts";
 import { UserRepositoryLive } from "../user-repository-live.ts";
 
@@ -51,17 +51,10 @@ const repositoryThrough = (databaseUrl: URL, proxyPort: number) => {
   proxiedUrl.hostname = "127.0.0.1";
   proxiedUrl.port = String(proxyPort);
 
-  const config = Layer.succeed(
-    AppConfig,
-    AppConfig.of({
-      databaseUrl: Redacted.make(proxiedUrl.toString()),
-      databaseStatementTimeoutMs: statementTimeoutMs,
-      apiHost: "127.0.0.1",
-      apiPort: 8000,
-      workerPollIntervalMs: 5000,
-      workerPassTimeoutMs: 60_000,
-    }),
-  );
+  const config = testAppConfig({
+    databaseUrl: Redacted.make(proxiedUrl.toString()),
+    databaseStatementTimeoutMs: statementTimeoutMs,
+  });
 
   return Layer.mergeAll(UserRepositoryLive, DatabaseHealthLive).pipe(
     Layer.provideMerge(DatabaseLive),
