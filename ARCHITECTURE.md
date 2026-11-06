@@ -117,7 +117,6 @@ packages/
     src/runtime-role.ts           # the API's and worker's role, which migrate provisions
     src/users/schema.ts           # Drizzle table and row schemas
     src/users/user-repository-live.ts
-    src/users/user-repository-error.ts
     src/test/                     # fake PgClient, migrated-database fixtures
     src/users/test/
 
@@ -291,8 +290,9 @@ consumer import database schema code to validate a request.
 
 Decode persisted rows with their row schema before returning them from a
 repository, including rows returned by inserts. Run such a query with
-`databaseCalls`' `rows`, which decodes them and maps a decoding failure to the
-repository error, so invalid stored data is reported as a server-side failure.
+`databaseCalls`' `one` or `many`, which decode its rows with the row schema and
+map a decoding failure to the repository error, so invalid stored data is
+reported as a server-side failure.
 
 ## Errors and safe diagnostics
 
@@ -314,10 +314,14 @@ through `databaseCalls(ErrorClass, timeout)` from
 `packages/database/src/database-call.ts`, which a repository gets from
 `repositoryCalls(ErrorClass)` with its timeout already set: its `run` bounds the
 call and turns any failure into the adapter's error for that operation, with
-those diagnostics, and its `rows` does the same and then decodes the rows the
-query returns. Feature adapters own only the mapping from a cause to a domain
-error, the `refine` argument of `run`, such as a unique violation on the email
-constraint to `UserAlreadyExists`.
+those diagnostics. `one` and `many` do the same and then decode the rows the
+query returns: `one` expects exactly one row, and `many` any number. Feature
+adapters own only which outcomes are domain errors. `onUniqueViolation` names
+the domain error that a unique violation on each constraint means, such as
+`UserAlreadyExists` for the email constraint, and `one`'s `onMissing` names the
+domain error that a missing row means, such as `UserNotFound`. `databaseCalls`
+reads the violated constraint from Drizzle's error itself, and a unique
+violation on any other constraint stays a persistence failure.
 
 HTTP handlers log a persistence failure's report as log annotations, and keep
 the response generic. The API's access log (`apps/api/src/access-log.ts`)

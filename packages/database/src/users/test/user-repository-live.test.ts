@@ -1,13 +1,15 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Schema } from "effect";
+import { SqlError } from "effect/sql";
 import { TestClock } from "effect/testing";
 
 import { UserRepository, UserRepositoryError } from "@node-effect/application";
-import { UserNotFound } from "@node-effect/domain";
+import { UserAlreadyExists, UserNotFound } from "@node-effect/domain";
 
 import { DatabaseLive } from "../../postgres.ts";
 import { testAppConfig } from "../../test/app-config.fixtures.ts";
 import {
+  connectionFailingWith,
   connectionWithRows,
   pgClientLayer,
   stalledConnection,
@@ -32,6 +34,28 @@ const stalledRepository = UserRepositoryLive.pipe(
 );
 
 const stalledCallLimitMs = 8000;
+
+// A database that fails every query as PostgreSQL does when an insert breaks
+// the unique constraint named `constraint`.
+const repositoryViolating = (constraint: string) =>
+  UserRepositoryLive.pipe(
+    Layer.provide(DatabaseLive),
+    Layer.provide(
+      pgClientLayer(
+        Effect.succeed(
+          connectionFailingWith(
+            new SqlError.SqlError({
+              reason: new SqlError.UniqueViolation({
+                cause: new Error("duplicate key value"),
+                constraint,
+              }),
+            }),
+          ),
+        ),
+      ),
+    ),
+    Layer.provide(testAppConfig()),
+  );
 
 const user = {
   id: "d5b9d3de-fda5-4a78-b8a5-2f3b60634d95",
@@ -121,6 +145,32 @@ describe("UserRepositoryLive", () => {
       assert.instanceOf(failure, UserNotFound);
       assert.strictEqual(failure.id, user.id);
     }).pipe(Effect.provide(repositoryWithRows([]))),
+  );
+
+  it.effect("insert reports a taken email as UserAlreadyExists", () =>
+    Effect.gen(function* () {
+      const repository = yield* UserRepository;
+      const failure = yield* repository.insert(input).pipe(Effect.flip);
+
+      assert.instanceOf(failure, UserAlreadyExists);
+      assert.strictEqual(failure.email, input.email);
+    }).pipe(Effect.provide(repositoryViolating("users_email_key"))),
+  );
+
+  it.effect(
+    "insert reports another unique violation as a persistence failure",
+    () =>
+      Effect.gen(function* () {
+        const repository = yield* UserRepository;
+        const failure = yield* repository.insert(input).pipe(Effect.flip);
+
+        assert.instanceOf(failure, UserRepositoryError);
+        assert.strictEqual(failure.operation, "insert");
+
+        assert.deepStrictEqual(failure.diagnostics, {
+          reason: "UniqueViolation",
+        });
+      }).pipe(Effect.provide(repositoryViolating("users_pkey"))),
   );
 
   for (const operation of ["insert", "findById", "list"] as const) {
