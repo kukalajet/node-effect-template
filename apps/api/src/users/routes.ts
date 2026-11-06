@@ -2,7 +2,7 @@ import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
 import { UserRepository } from "@node-effect/application";
-import { CreateUserSchema } from "@node-effect/domain";
+import type { CreateUser } from "@node-effect/domain";
 
 import { Api } from "../api-contract.ts";
 import { RequestValidationLive } from "../api-middleware.ts";
@@ -15,10 +15,6 @@ import {
   UserNotFoundResponse,
   type UserParams,
 } from "./api-contract.ts";
-
-// A valid body is under 2 KiB: a 320-character email and a 100-character
-// display name at up to 4 UTF-8 bytes per character, plus the JSON around them.
-const createUserBodyMaxBytes = 4 * 1024;
 
 const listUsers = ({ limit }: typeof UserListQuery.Type) =>
   Effect.gen(function* () {
@@ -40,23 +36,26 @@ const getUser = ({ id }: typeof UserParams.Type) =>
     }),
   );
 
-const createUser = Effect.gen(function* () {
-  const input = yield* jsonBody(CreateUserSchema, createUserBodyMaxBytes);
-  const repository = yield* UserRepository;
+const createUser = (input: CreateUser) =>
+  Effect.gen(function* () {
+    const repository = yield* UserRepository;
 
-  return yield* repository.insert(input);
-}).pipe(
-  Effect.catchTags({
-    UserAlreadyExists: () => Effect.fail(UserAlreadyExistsResponse.body),
-    UserRepositoryError: databaseFailure,
-  }),
-);
+    return yield* repository.insert(input);
+  }).pipe(
+    Effect.catchTags({
+      UserAlreadyExists: () => Effect.fail(UserAlreadyExistsResponse.body),
+      UserRepositoryError: databaseFailure,
+    }),
+  );
 
 const UserHandlers = HttpApiBuilder.group(Api, "users", (handlers) =>
   handlers
     .handle("list", ({ query }) => listUsers(query))
     .handle("get", ({ params }) => getUser(params))
-    .handleRaw("create", () => createUser),
+    // Raw, so HttpApi leaves the body for jsonBody to read within its limit.
+    .handleRaw("create", ({ endpoint }) =>
+      jsonBody(endpoint).pipe(Effect.flatMap(createUser)),
+    ),
 ).pipe(Layer.provide(RequestValidationLive));
 
 export { UserHandlers };
