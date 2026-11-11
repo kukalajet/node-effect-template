@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./mod.ts"
+    ".": "./index.ts"
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",

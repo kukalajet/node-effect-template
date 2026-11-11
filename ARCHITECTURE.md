@@ -95,20 +95,20 @@ apps/
 
 packages/
   domain/
-    mod.ts                        # public package API
+    index.ts                      # public package API
     src/user.ts                   # domain values, models, and errors
   application/
-    mod.ts
+    index.ts
     src/database-health.ts        # readiness port: does the database answer
     src/persistence-failure.ts    # repository error fields, report, redaction, reportFailure
     src/users/user-repository.ts  # abstract service (port) and its error
   config/
-    mod.ts
+    index.ts
     src/app-config.ts             # AppConfig, read by the API and the worker
     src/runtime-role-config.ts    # the runtime role's name and password, read by migrate only
     src/logging.ts                # LoggingLive: JSON lines with trace ids, at LOG_LEVEL
   database/
-    mod.ts
+    index.ts
     src/postgres.ts               # PgClient and Database services and layers
     src/database-health-live.ts   # select 1 with a 5 second limit
     src/error-diagnostics.ts      # safe diagnostics from database causes
@@ -508,7 +508,7 @@ Module mocking fails lint.
 
 ## Public imports
 
-Each package exposes its supported surface through `mod.ts`, which its
+Each package exposes its supported surface through `index.ts`, which its
 `package.json` `exports` field names. Code in another package imports that
 surface:
 
@@ -518,7 +518,7 @@ import { UserRepository } from "@node-effect/application";
 
 Do not deep-import another package's `src/` files. Relative imports are for
 modules inside the same package or app, and end in `.ts`. Keep adapter-only
-details out of `mod.ts` unless another boundary, such as an app composition
+details out of `index.ts` unless another boundary, such as an app composition
 root, intentionally needs them.
 
 ## Guardrails against accidental architecture
