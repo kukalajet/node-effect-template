@@ -4,9 +4,8 @@ import type { HttpApiEndpoint } from "effect/http-api";
 
 import { BadRequestResponse, PayloadTooLargeResponse } from "./api-schemas.ts";
 
-// The most bytes an endpoint's JSON body may have. Its contract sets it with
-// `.annotate(JsonBodyLimit, bytes)`, beside the PayloadTooLargeResponse that
-// the endpoint must declare.
+// The most bytes an endpoint's JSON body may have. `withJsonBodyLimit` sets it
+// on the endpoint's contract, and `jsonBody` reads it from there.
 class JsonBodyLimit extends Context.Service<JsonBodyLimit, number>()(
   "@node-effect/api/JsonBodyLimit",
 ) {}
@@ -77,13 +76,11 @@ const jsonPayloadSchema = (endpoint: BodyEndpoint) => {
   return undefined;
 };
 
-// Reads `endpoint`'s JSON body: at most the JsonBodyLimit its contract sets,
-// decoded with the payload schema the contract declares, unknown fields
-// rejected. Fails with the public 400 or 413 body, so the endpoint must sit
-// behind RequestValidation, and its handler must be registered with
-// `handleRaw`, which leaves the body unread. A contract without a JSON payload
-// or a limit is a mistake in the code, so reading its body dies, naming the
-// endpoint.
+// Reads `endpoint`'s JSON body: at most the limit `withJsonBodyLimit` set on
+// its contract, decoded with the payload schema the contract declares, unknown
+// fields rejected. Fails with the public 400 or 413 body. A contract without a
+// JSON payload or a limit is a mistake in the code, so reading its body dies,
+// naming the endpoint.
 const jsonBody = <Endpoint extends BodyEndpoint>(endpoint: Endpoint) => {
   const schema = jsonPayloadSchema(endpoint);
   const maxBytes = Context.getOption(endpoint.annotations, JsonBodyLimit);
@@ -123,4 +120,44 @@ const jsonBody = <Endpoint extends BodyEndpoint>(endpoint: Endpoint) => {
   >;
 };
 
-export { jsonBody, JsonBodyLimit };
+// What a raw handler receives for an endpoint with a JSON body. `handle` passes
+// a decoded `payload`, which this type refuses.
+type RawBodyRequest = {
+  readonly endpoint: BodyEndpoint;
+  readonly payload?: never;
+};
+
+// The handler of an endpoint with a JSON body: reads the body with `jsonBody`
+// and passes it to `handler`, with the raw handler's request for its params,
+// query and headers. It fails with the public 400 or 413 body, so the endpoint
+// must declare PayloadTooLargeResponse and sit behind RequestValidation, and
+// leaving either out does not compile. Neither does registering it with
+// `handle` instead of `handleRaw`: HttpApi would read the body first, without
+// the limit.
+const jsonBodyHandler =
+  <Request extends RawBodyRequest, A, E, R>(
+    handler: (
+      body: JsonPayload<Request["endpoint"]>["Type"],
+      request: Request,
+    ) => Effect.Effect<A, E, R>,
+  ) =>
+  (request: Request) =>
+    jsonBody<Request["endpoint"]>(request.endpoint).pipe(
+      Effect.flatMap((body) => handler(body, request)),
+    );
+
+// Sets the body limit on a JSON endpoint's contract: `maxBytes` is what
+// `jsonBodyHandler` reads there, beside the PayloadTooLargeResponse the
+// endpoint must declare.
+const withJsonBodyLimit =
+  (maxBytes: number) =>
+  <
+    Endpoint extends {
+      readonly annotate: (key: typeof JsonBodyLimit, value: number) => Endpoint;
+    },
+  >(
+    endpoint: Endpoint,
+  ) =>
+    endpoint.annotate(JsonBodyLimit, maxBytes);
+
+export { jsonBodyHandler, withJsonBodyLimit };

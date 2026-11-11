@@ -14,7 +14,7 @@ import {
   PayloadTooLargeResponse,
   publicError,
 } from "../api-schemas.ts";
-import { JsonBodyLimit } from "../request-body.ts";
+import { withJsonBodyLimit } from "../request-body.ts";
 
 const UserParams = Schema.Struct({ id: UserId });
 
@@ -61,8 +61,8 @@ const UsersApi = HttpApiGroup.make("users")
       success: UserSchema,
       error: [UserNotFoundResponse.schema, DatabaseErrorResponse.schema],
     }),
-    // The handler reads the body itself, at most JsonBodyLimit bytes, and
-    // decodes it with this payload (see request-body.ts).
+    // The handler reads the body itself, at most the bytes withJsonBodyLimit
+    // sets below, and decodes it with this payload (see request-body.ts).
     HttpApiEndpoint.post("create", "/users", {
       payload: CreateUserSchema,
       success: UserSchema.pipe(HttpApiSchema.status(201)),
@@ -71,7 +71,7 @@ const UsersApi = HttpApiGroup.make("users")
         UserAlreadyExistsResponse.schema,
         DatabaseErrorResponse.schema,
       ],
-    }).annotate(JsonBodyLimit, createUserBodyMaxBytes),
+    }).pipe(withJsonBodyLimit(createUserBodyMaxBytes)),
   )
   .middleware(RequestValidation);
 

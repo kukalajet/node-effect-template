@@ -7,7 +7,7 @@ import type { CreateUser } from "@node-effect/domain";
 import { Api } from "../api-contract.ts";
 import { RequestValidationLive } from "../api-middleware.ts";
 import { databaseFailure } from "../http-errors.ts";
-import { jsonBody } from "../request-body.ts";
+import { jsonBodyHandler } from "../request-body.ts";
 
 import {
   UserAlreadyExistsResponse,
@@ -52,10 +52,9 @@ const UserHandlers = HttpApiBuilder.group(Api, "users", (handlers) =>
   handlers
     .handle("list", ({ query }) => listUsers(query))
     .handle("get", ({ params }) => getUser(params))
-    // Raw, so HttpApi leaves the body for jsonBody to read within its limit.
-    .handleRaw("create", ({ endpoint }) =>
-      jsonBody(endpoint).pipe(Effect.flatMap(createUser)),
-    ),
+    // Raw, so HttpApi leaves the body for jsonBodyHandler to read within its
+    // limit.
+    .handleRaw("create", jsonBodyHandler(createUser)),
 ).pipe(Layer.provide(RequestValidationLive));
 
 export { UserHandlers };

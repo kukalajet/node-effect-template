@@ -262,15 +262,20 @@ Errors follow these conventions:
   path, query, headers and payload into `400 INVALID_REQUEST`. Failures to
   encode the server's own response stay internal errors.
 - An endpoint with a JSON body states everything about it in its contract: its
-  `payload` schema, its byte limit with `.annotate(JsonBodyLimit, bytes)`, and
+  `payload` schema, its byte limit with `.pipe(withJsonBodyLimit(bytes))`, and
   `PayloadTooLargeResponse` among its errors, behind `RequestValidation`. Its
-  handler is registered with `handleRaw` and reads the body with
-  `jsonBody(endpoint)` from `request-body.ts`, which decodes it with that
-  payload schema, stops reading past the limit (`413 PAYLOAD_TOO_LARGE`), and
-  rejects unknown fields (`400 INVALID_REQUEST`). HttpApi's own JSON decoding
-  cannot answer 413: past `MaxBodySize` it fails the request as a defect. A
-  contract without the payload or the limit makes `jsonBody` die, naming the
-  endpoint.
+  handler is registered with `.handleRaw(name, jsonBodyHandler(handler))`; both
+  helpers come from `request-body.ts`, and nothing else reads a body.
+  `jsonBodyHandler` decodes the body with that payload schema, stops reading
+  past the limit (`413 PAYLOAD_TOO_LARGE`), rejects unknown fields
+  (`400 INVALID_REQUEST`), and passes the body to `handler`, with the request
+  for its params, query and headers. It fails with those bodies, so an endpoint
+  that leaves `PayloadTooLargeResponse` out of its errors, or a group that is
+  not behind `RequestValidation`, does not compile. Neither does `handle` in
+  place of `handleRaw`, with which HttpApi would read the body first: its own
+  JSON decoding cannot answer 413, and past `MaxBodySize` it fails the request
+  as a defect. A contract without the payload or the limit dies when the body is
+  read, naming the endpoint.
 - A persistence failure becomes `500 DATABASE_ERROR`, or
   `503 DATABASE_UNAVAILABLE` for readiness, through `http-errors.ts`.
 
