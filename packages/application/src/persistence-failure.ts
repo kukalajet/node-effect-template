@@ -10,8 +10,8 @@ const PersistenceDiagnostics = Schema.Struct({
   validationPaths: Schema.optional(Schema.Array(Schema.String)),
 });
 
-// Every repository error is built from these fields, so callers can recognize
-// one without listing each class.
+// Every persistence failure is built from these fields, so callers can
+// recognize one without listing each class.
 const persistenceFailureFields = <
   const Operations extends ReadonlyArray<string>,
 >(

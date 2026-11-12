@@ -11,5 +11,5 @@ export {
 
 export {
   UserRepository,
-  UserRepositoryError,
+  UserPersistenceFailure,
 } from "./src/users/user-repository.ts";

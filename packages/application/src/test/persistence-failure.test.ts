@@ -15,7 +15,7 @@ class ProbeFailure extends Schema.TaggedError<ProbeFailure>()(
 ) {}
 
 describe("persistence failures", () => {
-  it("recognize repository errors and report them without the cause", () => {
+  it("recognize persistence failures and report them without the cause", () => {
     const error = new ProbeFailure({
       operation: "read",
       cause: new Error("secret driver message"),

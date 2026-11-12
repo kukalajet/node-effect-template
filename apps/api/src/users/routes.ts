@@ -22,7 +22,7 @@ const listUsers = ({ limit }: typeof UserListQuery.Type) =>
     const users = yield* repository.list(limit);
 
     return { users };
-  }).pipe(Effect.catchTag("UserRepositoryError", databaseFailure));
+  }).pipe(Effect.catchTag("UserPersistenceFailure", databaseFailure));
 
 const getUser = ({ id }: typeof UserParams.Type) =>
   Effect.gen(function* () {
@@ -32,7 +32,7 @@ const getUser = ({ id }: typeof UserParams.Type) =>
   }).pipe(
     Effect.catchTags({
       UserNotFound: () => Effect.fail(UserNotFoundResponse.body),
-      UserRepositoryError: databaseFailure,
+      UserPersistenceFailure: databaseFailure,
     }),
   );
 
@@ -44,7 +44,7 @@ const createUser = (input: CreateUser) =>
   }).pipe(
     Effect.catchTags({
       UserAlreadyExists: () => Effect.fail(UserAlreadyExistsResponse.body),
-      UserRepositoryError: databaseFailure,
+      UserPersistenceFailure: databaseFailure,
     }),
   );
 

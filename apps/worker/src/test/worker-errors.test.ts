@@ -78,7 +78,7 @@ const portJob = {
 const unexpectedError = new Error("UNEXPECTED_FAILURE");
 
 describe("worker failure reporting", () => {
-  it.effect("logs a repository failure once, with safe diagnostics", () =>
+  it.effect("logs a persistence failure once, with safe diagnostics", () =>
     Effect.gen(function* () {
       const error = repositoryFailure();
       let finalized = false;
@@ -173,7 +173,7 @@ describe("worker failure reporting", () => {
   }
 
   it.effect(
-    "reports a cleanup defect alongside a safe repository failure",
+    "reports a cleanup defect alongside a safe persistence failure",
     () =>
       Effect.gen(function* () {
         const error = repositoryFailure();
