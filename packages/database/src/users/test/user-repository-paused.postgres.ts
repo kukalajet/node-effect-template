@@ -6,7 +6,7 @@ import {
   DatabaseHealth,
   DatabaseHealthError,
   UserRepository,
-  UserRepositoryError,
+  UserPersistenceFailure,
 } from "@node-effect/application";
 
 import { DatabaseHealthLive } from "../../database-health-live.ts";
@@ -112,7 +112,7 @@ describe("UserRepositoryLive on a paused PostgreSQL", () => {
             .list(10)
             .pipe(Effect.flip, Effect.timed);
 
-          assert.instanceOf(listFailure, UserRepositoryError);
+          assert.instanceOf(listFailure, UserPersistenceFailure);
 
           assert.deepStrictEqual(listFailure.diagnostics, {
             reason: "TimeoutError",
@@ -138,7 +138,7 @@ describe("UserRepositoryLive on a paused PostgreSQL", () => {
             healthLimitMs + cancelWaitMs + slackMs,
           );
 
-          assert.instanceOf(nextFailure, UserRepositoryError);
+          assert.instanceOf(nextFailure, UserPersistenceFailure);
 
           assert.deepStrictEqual(nextFailure.diagnostics, {
             reason: "ConnectionError",

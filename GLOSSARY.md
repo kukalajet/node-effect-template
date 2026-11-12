@@ -7,13 +7,25 @@ the terms its code and documents use.
 
 ### Persistence
 
-**Persistence failure**: A repository error for an operation the database could
-not complete, such as after a lost connection, a timeout, or stored data that no
-longer decodes. _Avoid_: database error
+**Persistence failure**: The failure of a repository operation that the database
+could not complete, such as after a lost connection, a timeout, or stored data
+that no longer decodes. _Avoid_: repository error
+
+**Database error**: The raw error the database or its driver raised. It is the
+cause inside most persistence failures, and it can contain SQL, parameters, or
+stored values, so it is never logged as it is.
+
+**Safe diagnostics**: The facts about a persistence failure or a database error
+that are safe to log: the kind of failure, an error code, and the fields that
+failed validation. _Avoid_: error details
 
 **Domain error**: An expected outcome of an operation that a caller can act on,
 such as a user that does not exist or an email that is already taken. _Avoid_:
 business exception
+
+**Runtime role**: The database role the API and the worker connect as. It can
+read and write the application's data but cannot change the schema, which only
+the database's owner can. _Avoid_: app role, application user
 
 ### Worker
 

@@ -3,7 +3,10 @@ import { Effect, Fiber, Layer, Schema } from "effect";
 import { SqlError } from "effect/sql";
 import { TestClock } from "effect/testing";
 
-import { UserRepository, UserRepositoryError } from "@node-effect/application";
+import {
+  UserRepository,
+  UserPersistenceFailure,
+} from "@node-effect/application";
 import { UserAlreadyExists, UserNotFound } from "@node-effect/domain";
 
 import { DatabaseLive } from "../../postgres.ts";
@@ -120,7 +123,7 @@ describe("UserRepositoryLive", () => {
         Effect.gen(function* () {
           const failure = yield* runOperation(operation).pipe(Effect.flip);
 
-          assert.instanceOf(failure, UserRepositoryError);
+          assert.instanceOf(failure, UserPersistenceFailure);
           assert.strictEqual(failure.operation, operation);
           assert.isTrue(Schema.isSchemaError(failure.cause));
 
@@ -164,7 +167,7 @@ describe("UserRepositoryLive", () => {
         const repository = yield* UserRepository;
         const failure = yield* repository.insert(input).pipe(Effect.flip);
 
-        assert.instanceOf(failure, UserRepositoryError);
+        assert.instanceOf(failure, UserPersistenceFailure);
         assert.strictEqual(failure.operation, "insert");
 
         assert.deepStrictEqual(failure.diagnostics, {
@@ -187,7 +190,7 @@ describe("UserRepositoryLive", () => {
         yield* TestClock.adjust(1);
         const failure = yield* Fiber.join(fiber);
 
-        assert.instanceOf(failure, UserRepositoryError);
+        assert.instanceOf(failure, UserPersistenceFailure);
         assert.strictEqual(failure.operation, operation);
         assert.deepStrictEqual(failure.diagnostics, { reason: "TimeoutError" });
       }).pipe(Effect.provide(stalledRepository)),

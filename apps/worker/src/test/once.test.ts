@@ -58,7 +58,7 @@ describe("apps/worker/src/once.ts", () => {
       [["Worker failed", "ERROR"]],
     );
 
-    // The table's own jobs decide which repository error it is; any of them
+    // The table's own jobs decide which persistence failure it is; any of them
     // carries these diagnostics.
     assert.include(
       lines[0]?.cause,

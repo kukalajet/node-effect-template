@@ -129,7 +129,7 @@ helper to learn which failures are fatal.
 // Failure: the catalog could not be read, so no invoice can be built at all.
 const invoiceLineFor = (
   line: OrderLine,
-): Effect.Effect<Option.Option<InvoiceLine>, CatalogRepositoryError> =>
+): Effect.Effect<Option.Option<InvoiceLine>, CatalogPersistenceFailure> =>
   Effect.gen(function* () {
     const catalog = yield* CatalogRepository;
     const product = yield* catalog.findById(line.productId);

@@ -1,7 +1,10 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 
-import { UserRepository, UserRepositoryError } from "@node-effect/application";
+import {
+  UserRepository,
+  UserPersistenceFailure,
+} from "@node-effect/application";
 import {
   type User,
   UserAlreadyExists,
@@ -33,8 +36,8 @@ const user: User = {
 const userJson = { ...user, createdAt: createdAt.toISOString() };
 const unknownUserId = "00000000-0000-4000-8000-000000000000";
 
-const repositoryFailure = (operation: UserRepositoryError["operation"]) =>
-  new UserRepositoryError({
+const repositoryFailure = (operation: UserPersistenceFailure["operation"]) =>
+  new UserPersistenceFailure({
     operation,
     cause: new Error("Unreachable PostgreSQL"),
     diagnostics: { reason: "ConnectionError", code: "ECONNREFUSED" },

@@ -1,7 +1,10 @@
 import { desc, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
-import { UserRepository, UserRepositoryError } from "@node-effect/application";
+import {
+  UserRepository,
+  UserPersistenceFailure,
+} from "@node-effect/application";
 import {
   type CreateUser,
   UserAlreadyExists,
@@ -16,7 +19,7 @@ import { userEmailUniqueConstraint, UserRowSchema, users } from "./schema.ts";
 
 const makeUserRepository = Effect.gen(function* () {
   const database = yield* Database;
-  const calls = yield* repositoryCalls(UserRepositoryError);
+  const calls = yield* repositoryCalls(UserPersistenceFailure);
 
   // Only the email constraint means the address is taken; any other unique
   // violation stays a persistence failure.

@@ -2,7 +2,10 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { UserRepository, UserRepositoryError } from "@node-effect/application";
+import {
+  UserRepository,
+  UserPersistenceFailure,
+} from "@node-effect/application";
 import {
   CreateUserSchema,
   UserAlreadyExists,
@@ -160,7 +163,7 @@ describe("UserRepositoryLive on PostgreSQL", () => {
       yield* rejectInsertsAs("another_constraint");
       const error = yield* repository.insert(ada).pipe(Effect.flip);
 
-      assert.instanceOf(error, UserRepositoryError);
+      assert.instanceOf(error, UserPersistenceFailure);
       assert.strictEqual(error.operation, "insert");
 
       assert.deepStrictEqual(error.diagnostics, {
@@ -180,7 +183,7 @@ describe("UserRepositoryLive on PostgreSQL", () => {
 
       const error = yield* repository.findById(unknownId).pipe(Effect.flip);
 
-      assert.instanceOf(error, UserRepositoryError);
+      assert.instanceOf(error, UserPersistenceFailure);
 
       assert.deepStrictEqual(error.diagnostics, {
         reason: "SchemaError",

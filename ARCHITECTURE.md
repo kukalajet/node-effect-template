@@ -100,7 +100,7 @@ packages/
   application/
     index.ts
     src/database-health.ts        # readiness port: does the database answer
-    src/persistence-failure.ts    # repository error fields, report, redaction, reportFailure
+    src/persistence-failure.ts    # persistence failure fields, report, redaction, reportFailure
     src/users/user-repository.ts  # abstract service (port) and its error
   config/
     index.ts
@@ -162,7 +162,7 @@ today; ownership, rather than line count, decides the location.
 | Adapter that a worker job needs                                            | `WorkerServicesLive` in `worker-runtime.ts`                                                              |
 | Business value, invariant, entity, command, or domain error                | `packages/domain/src/<feature>.ts`                                                                       |
 | Use-case orchestration or outbound service contract                        | `packages/application/src/<feature>/`                                                                    |
-| Repository error                                                           | beside its port, built with `persistenceFailureFields`                                                   |
+| Persistence failure class                                                  | beside its port, built with `persistenceFailureFields`                                                   |
 | PostgreSQL/Drizzle table, query, row mapping, or repository implementation | `packages/database/src/<feature>/`                                                                       |
 | A new table file                                                           | `packages/database/src/<feature>/schema.ts`; the glob in `drizzle.config.ts` picks it up                 |
 | A schema change                                                            | the table file, then `pnpm db:generate` writes `drizzle/`; `pnpm check` fails until the migration exists |
@@ -301,15 +301,15 @@ consumer import database schema code to validate a request.
 Decode persisted rows with their row schema before returning them from a
 repository, including rows returned by inserts. Run such a query with
 `databaseCalls`' `one` or `many`, which decode its rows with the row schema and
-map a decoding failure to the repository error, so invalid stored data is
-reported as a server-side failure.
+map a decoding failure to the repository's persistence failure, so invalid
+stored data is reported as a server-side failure.
 
 ## Errors and safe diagnostics
 
-Every repository error is built from `persistenceFailureFields(operations)` in
-`application`: a type-id brand, the failed `operation`, the raw `cause`, and
+Every persistence failure is built from `persistenceFailureFields(operations)`
+in `application`: a type-id brand, the failed `operation`, the raw `cause`, and
 safe `diagnostics`. `isPersistenceFailure` and `persistenceFailureReport` let
-the API and the worker handle any repository error without listing its class,
+the API and the worker handle any persistence failure without listing its class,
 and the report, its tag, operation, and diagnostics, is the only form in which
 one is logged. `redactPersistenceFailures` reduces every persistence failure in
 a cause, also one that arrives as a defect, to that report.
