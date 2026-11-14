@@ -99,14 +99,15 @@ endpoint can return:
 { "error": { "code": "USER_NOT_FOUND", "message": "User not found" } }
 ```
 
-Invalid path parameters, query strings, headers, malformed JSON and unknown
-fields are `400 INVALID_REQUEST`. A body that is not sent as `application/json`,
-with or without a `charset` parameter, is `415 UNSUPPORTED_MEDIA_TYPE` whatever
-it holds: a browser can post `text/plain`, or a body with no content type, to
-another site without a CORS preflight. A failed database operation is
-`500 DATABASE_ERROR`; failed readiness is `503 DATABASE_UNAVAILABLE`. Responses
-never carry the cause, and logs carry only safe diagnostics such as a SQLSTATE
-code.
+Invalid path parameters, query strings, headers, malformed JSON, unknown fields
+and a body whose text is not valid Unicode (bytes that are not UTF-8, or a lone
+surrogate written as an escape such as `\ud800`) are `400 INVALID_REQUEST`. A
+body that is not sent as `application/json`, with or without a `charset`
+parameter, is `415 UNSUPPORTED_MEDIA_TYPE` whatever it holds: a browser can post
+`text/plain`, or a body with no content type, to another site without a CORS
+preflight. A failed database operation is `500 DATABASE_ERROR`; failed readiness
+is `503 DATABASE_UNAVAILABLE`. Responses never carry the cause, and logs carry
+only safe diagnostics such as a SQLSTATE code.
 
 The API starts while the database is unavailable, because the connection pool
 opens connections on demand. Liveness stays 200 during an outage; readiness and

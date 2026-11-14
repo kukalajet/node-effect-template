@@ -31,7 +31,7 @@ const expectStatus = async (
 const isObject = (value: unknown): value is object =>
   typeof value === "object" && value !== null;
 
-const postUser = (body: string): RequestInit => ({
+const postUser = (body: string | Uint8Array): RequestInit => ({
   method: "POST",
   headers: { "content-type": "application/json" },
   body,
@@ -95,6 +95,19 @@ await expectStatus(
 
 // A second user, whom none of the requests below may create.
 const grace = { ...input, email: "grace@example.com" };
+
+// Latin-1 writes U+00FF and U+00FE as the bytes 0xff and 0xfe, which UTF-8
+// never uses, and JSON.stringify writes a lone surrogate as its escape,
+// \ud800.
+for (const body of [
+  Buffer.from(
+    JSON.stringify({ ...grace, displayName: "a\u00ff\u00feb" }),
+    "latin1",
+  ),
+  JSON.stringify({ ...grace, displayName: "a\ud800b" }),
+]) {
+  await expectStatus("/users", 400, postUser(body));
+}
 
 await expectStatus("/users", 415, {
   ...postUser(JSON.stringify(grace)),

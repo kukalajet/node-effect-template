@@ -264,6 +264,27 @@ describe("POST /users", () => {
       name: "a NUL character in the display name",
       body: JSON.stringify({ email: user.email, displayName: "a\u0000b" }),
     },
+    {
+      // Latin-1 writes U+00FF and U+00FE as the bytes 0xff and 0xfe, which
+      // UTF-8 never uses.
+      name: "a display name that is not UTF-8",
+      body: Buffer.from(
+        JSON.stringify({ email: user.email, displayName: "a\u00ff\u00feb" }),
+        "latin1",
+      ),
+    },
+    {
+      // JSON.stringify writes a lone surrogate as its escape, \ud800.
+      name: "a lone surrogate in the email",
+      body: JSON.stringify({
+        email: "a\ud800b@example.com",
+        displayName: "Ada",
+      }),
+    },
+    {
+      name: "a lone surrogate in the display name",
+      body: JSON.stringify({ email: user.email, displayName: "a\ud800b" }),
+    },
     { name: "a missing field", body: JSON.stringify({ email: user.email }) },
     {
       name: "an unknown field",

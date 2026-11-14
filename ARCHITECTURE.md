@@ -271,9 +271,13 @@ Errors follow these conventions:
   (`415 UNSUPPORTED_MEDIA_TYPE`), because a browser can post `text/plain`, or a
   body with no content type, to another site without a CORS preflight. It then
   decodes the body with that payload schema, stops reading past the limit
-  (`413 PAYLOAD_TOO_LARGE`), rejects unknown fields (`400 INVALID_REQUEST`), and
-  passes the body to `handler`, with the request for its params, query and
-  headers. It fails with those bodies, so an endpoint that leaves
+  (`413 PAYLOAD_TOO_LARGE`), rejects unknown fields and text that is not valid
+  Unicode (`400 INVALID_REQUEST`), and passes the body to `handler`, with the
+  request for its params, query and headers. Such text is bytes that are not
+  UTF-8, or a lone surrogate written as an escape such as `\ud800`, either of
+  which would be stored as U+FFFD, the replacement character; the reader refuses
+  it, rather than each payload schema, so that every string of every endpoint is
+  covered. It fails with those bodies, so an endpoint that leaves
   `PayloadTooLargeResponse` or `UnsupportedMediaTypeResponse` out of its errors,
   or a group that is not behind `RequestValidation`, does not compile. Neither
   does `handle` in place of `handleRaw`, with which HttpApi would read the body

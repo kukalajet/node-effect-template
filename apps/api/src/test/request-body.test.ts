@@ -10,6 +10,7 @@ import {
 
 import { RequestValidation } from "../api-middleware.ts";
 import {
+  BadRequestResponse,
   PayloadTooLargeResponse,
   UnsupportedMediaTypeResponse,
 } from "../api-schemas.ts";
@@ -55,33 +56,34 @@ const NotesWithout415Api = HttpApi.make("notes").add(
 
 const jsonHeaders = { "content-type": "application/json" };
 
-// A small, valid JSON POST, as the router hands it to a raw handler. Its body
-// is bytes, which get no Content-Type of their own as a string would.
-const notePost = (headers: Record<string, string>) =>
+// A small, valid JSON body. It is bytes, which get no Content-Type of their
+// own as a string would.
+const noteBytes = new TextEncoder().encode(JSON.stringify({ text: "hello" }));
+
+// A POST as the router hands it to a raw handler.
+const notePost = (headers: Record<string, string>, body: string | Uint8Array) =>
   HttpServerRequest.fromWeb(
-    new Request("http://localhost/notes", {
-      method: "POST",
-      headers,
-      body: new TextEncoder().encode(JSON.stringify({ text: "hello" })),
-    }),
+    new Request("http://localhost/notes", { method: "POST", headers, body }),
   );
 
-// Reads the body above as `endpoint`'s raw handler does.
+// Reads a body as `endpoint`'s raw handler does: the one above, sent as JSON,
+// unless the test gives its own.
 const readBody = (
   endpoint: Parameters<typeof echoBody>[0]["endpoint"],
   headers: Record<string, string> = jsonHeaders,
+  body: string | Uint8Array = noteBytes,
 ) =>
   echoBody({ endpoint }).pipe(
     Effect.provideService(
       HttpServerRequest.HttpServerRequest,
-      notePost(headers),
+      notePost(headers, body),
     ),
     Effect.exit,
   );
 
 // The users route tests read real bodies through the users contract; these
-// cover the content types this module accepts, the limit it reads from an
-// endpoint, and the contracts that leave out what it needs from them.
+// cover the content types and the text this module accepts, the limit it reads
+// from an endpoint, and the contracts that leave out what it needs from them.
 describe("jsonBodyHandler", () => {
   it.effect("decodes a body within the endpoint's limit", () =>
     Effect.gen(function* () {
@@ -149,6 +151,64 @@ describe("jsonBodyHandler", () => {
       }),
     );
   }
+
+  for (const { name, body } of [
+    {
+      // Latin-1 writes U+00FF and U+00FE as the bytes 0xff and 0xfe, which
+      // UTF-8 never uses.
+      name: "bytes that are not UTF-8",
+      body: Buffer.from(JSON.stringify({ text: "a\u00ff\u00feb" }), "latin1"),
+    },
+    {
+      // JSON.stringify writes a lone surrogate as its escape, \ud800.
+      name: "a lone surrogate written as an escape",
+      body: JSON.stringify({ text: "a\ud800b" }),
+    },
+  ]) {
+    it.effect(`fails with the 400 body for ${name}`, () =>
+      Effect.gen(function* () {
+        const endpoint = HttpApiEndpoint.post("createNote", "/notes", {
+          payload: NoteSchema,
+        }).pipe(withJsonBodyLimit(1024));
+
+        const exit = yield* readBody(endpoint, jsonHeaders, body);
+
+        assert.deepStrictEqual(exit, Exit.fail(BadRequestResponse.body));
+      }),
+    );
+  }
+
+  it.effect("fails with the 400 body for a lone surrogate in a key", () =>
+    Effect.gen(function* () {
+      const endpoint = HttpApiEndpoint.post("createLabels", "/labels", {
+        payload: Schema.Record(Schema.String, Schema.String),
+      }).pipe(withJsonBodyLimit(1024));
+
+      const exit = yield* readBody(
+        endpoint,
+        jsonHeaders,
+        JSON.stringify({ "\ud800": "label" }),
+      );
+
+      assert.deepStrictEqual(exit, Exit.fail(BadRequestResponse.body));
+    }),
+  );
+
+  it.effect("decodes a surrogate pair written as escapes", () =>
+    Effect.gen(function* () {
+      const endpoint = HttpApiEndpoint.post("createNote", "/notes", {
+        payload: NoteSchema,
+      }).pipe(withJsonBodyLimit(1024));
+
+      const exit = yield* readBody(
+        endpoint,
+        jsonHeaders,
+        String.raw`{"text":"\ud83d\ude00"}`,
+      );
+
+      assert.deepStrictEqual(exit, Exit.succeed({ text: "\u{1f600}" }));
+    }),
+  );
 
   it.effect("dies naming an endpoint whose contract sets no limit", () =>
     Effect.gen(function* () {
