@@ -13,6 +13,7 @@ import {
   DatabaseErrorResponse,
   PayloadTooLargeResponse,
   publicError,
+  UnsupportedMediaTypeResponse,
 } from "../api-schemas.ts";
 import { withJsonBodyLimit } from "../request-body.ts";
 
@@ -68,6 +69,7 @@ const UsersApi = HttpApiGroup.make("users")
       success: UserSchema.pipe(HttpApiSchema.status(201)),
       error: [
         PayloadTooLargeResponse.schema,
+        UnsupportedMediaTypeResponse.schema,
         UserAlreadyExistsResponse.schema,
         DatabaseErrorResponse.schema,
       ],

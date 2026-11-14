@@ -263,19 +263,23 @@ Errors follow these conventions:
   encode the server's own response stay internal errors.
 - An endpoint with a JSON body states everything about it in its contract: its
   `payload` schema, its byte limit with `.pipe(withJsonBodyLimit(bytes))`, and
-  `PayloadTooLargeResponse` among its errors, behind `RequestValidation`. Its
-  handler is registered with `.handleRaw(name, jsonBodyHandler(handler))`; both
-  helpers come from `request-body.ts`, and nothing else reads a body.
-  `jsonBodyHandler` decodes the body with that payload schema, stops reading
-  past the limit (`413 PAYLOAD_TOO_LARGE`), rejects unknown fields
-  (`400 INVALID_REQUEST`), and passes the body to `handler`, with the request
-  for its params, query and headers. It fails with those bodies, so an endpoint
-  that leaves `PayloadTooLargeResponse` out of its errors, or a group that is
-  not behind `RequestValidation`, does not compile. Neither does `handle` in
-  place of `handleRaw`, with which HttpApi would read the body first: its own
-  JSON decoding cannot answer 413, and past `MaxBodySize` it fails the request
-  as a defect. A contract without the payload or the limit dies when the body is
-  read, naming the endpoint.
+  `PayloadTooLargeResponse` and `UnsupportedMediaTypeResponse` among its errors,
+  behind `RequestValidation`. Its handler is registered with
+  `.handleRaw(name, jsonBodyHandler(handler))`; both helpers come from
+  `request-body.ts`, and nothing else reads a body. `jsonBodyHandler` refuses a
+  request whose media type is not `application/json` before reading it
+  (`415 UNSUPPORTED_MEDIA_TYPE`), because a browser can post `text/plain`, or a
+  body with no content type, to another site without a CORS preflight. It then
+  decodes the body with that payload schema, stops reading past the limit
+  (`413 PAYLOAD_TOO_LARGE`), rejects unknown fields (`400 INVALID_REQUEST`), and
+  passes the body to `handler`, with the request for its params, query and
+  headers. It fails with those bodies, so an endpoint that leaves
+  `PayloadTooLargeResponse` or `UnsupportedMediaTypeResponse` out of its errors,
+  or a group that is not behind `RequestValidation`, does not compile. Neither
+  does `handle` in place of `handleRaw`, with which HttpApi would read the body
+  first: its own JSON decoding cannot answer 413, and past `MaxBodySize` it
+  fails the request as a defect. A contract without the payload or the limit
+  dies when the body is read, naming the endpoint.
 - A persistence failure becomes `500 DATABASE_ERROR`, or
   `503 DATABASE_UNAVAILABLE` for readiness, through `http-errors.ts`.
 

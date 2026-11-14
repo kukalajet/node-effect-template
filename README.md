@@ -81,16 +81,16 @@ so `pnpm dev:api` and `pnpm dev:worker` run as the owner, unlike the containers
 
 ## Application behavior
 
-| Endpoint            | Purpose                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `GET /health/live`  | Process liveness; never touches PostgreSQL                                       |
-| `GET /health/ready` | PostgreSQL readiness (`select 1`, 5 second timeout); 503 when unavailable        |
-| `GET /health`       | Alias for readiness                                                              |
-| `GET /users`        | Up to `limit` users (1–100, default 50), newest first; 400 for any other `limit` |
-| `GET /users/:id`    | One user; 400 for a malformed id, 404 when unknown                               |
-| `POST /users`       | 201 with the user; 400 for invalid input, 409 for a taken email, 413 > 4 KiB     |
-| `GET /openapi.json` | OpenAPI 3.1 document generated from the endpoint contracts                       |
-| `GET /docs`         | Swagger UI for that document                                                     |
+| Endpoint            | Purpose                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GET /health/live`  | Process liveness; never touches PostgreSQL                                                                          |
+| `GET /health/ready` | PostgreSQL readiness (`select 1`, 5 second timeout); 503 when unavailable                                           |
+| `GET /health`       | Alias for readiness                                                                                                 |
+| `GET /users`        | Up to `limit` users (1–100, default 50), newest first; 400 for any other `limit`                                    |
+| `GET /users/:id`    | One user; 400 for a malformed id, 404 when unknown                                                                  |
+| `POST /users`       | 201 with the user; 400 for invalid input, 409 for a taken email, 413 > 4 KiB, 415 unless sent as `application/json` |
+| `GET /openapi.json` | OpenAPI 3.1 document generated from the endpoint contracts                                                          |
+| `GET /docs`         | Swagger UI for that document                                                                                        |
 
 Every error response has the same shape, and the contract lists each code an
 endpoint can return:
@@ -100,7 +100,10 @@ endpoint can return:
 ```
 
 Invalid path parameters, query strings, headers, malformed JSON and unknown
-fields are `400 INVALID_REQUEST`. A failed database operation is
+fields are `400 INVALID_REQUEST`. A body that is not sent as `application/json`,
+with or without a `charset` parameter, is `415 UNSUPPORTED_MEDIA_TYPE` whatever
+it holds: a browser can post `text/plain`, or a body with no content type, to
+another site without a CORS preflight. A failed database operation is
 `500 DATABASE_ERROR`; failed readiness is `503 DATABASE_UNAVAILABLE`. Responses
 never carry the cause, and logs carry only safe diagnostics such as a SQLSTATE
 code.

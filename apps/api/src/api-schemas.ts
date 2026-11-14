@@ -32,6 +32,12 @@ const PayloadTooLargeResponse = publicError(
   "The request payload is too large",
 );
 
+const UnsupportedMediaTypeResponse = publicError(
+  415,
+  "UNSUPPORTED_MEDIA_TYPE",
+  "The request content type must be application/json",
+);
+
 const DatabaseErrorResponse = publicError(
   500,
   "DATABASE_ERROR",
@@ -50,4 +56,5 @@ export {
   DatabaseUnavailableResponse,
   PayloadTooLargeResponse,
   publicError,
+  UnsupportedMediaTypeResponse,
 };

@@ -9,7 +9,10 @@ import {
 } from "effect/http-api";
 
 import { RequestValidation } from "../api-middleware.ts";
-import { PayloadTooLargeResponse } from "../api-schemas.ts";
+import {
+  PayloadTooLargeResponse,
+  UnsupportedMediaTypeResponse,
+} from "../api-schemas.ts";
 import { jsonBodyHandler, withJsonBodyLimit } from "../request-body.ts";
 
 const NoteSchema = Schema.Struct({ text: Schema.String });
@@ -20,9 +23,25 @@ const echo = <A>(body: A) => Effect.succeed(body);
 // The handler for any endpoint, whatever its payload.
 const echoBody = jsonBodyHandler((body: unknown) => echo(body));
 
-// A complete JSON endpoint of the test's own: payload, limit, the 413 among
-// its errors, behind RequestValidation.
+// A complete JSON endpoint of the test's own: payload, limit, the 413 and the
+// 415 among its errors, behind RequestValidation.
 const NotesApi = HttpApi.make("notes").add(
+  HttpApiGroup.make("notes")
+    .add(
+      HttpApiEndpoint.post("create", "/notes", {
+        payload: NoteSchema,
+        success: NoteSchema,
+        error: [
+          PayloadTooLargeResponse.schema,
+          UnsupportedMediaTypeResponse.schema,
+        ],
+      }).pipe(withJsonBodyLimit(1024)),
+    )
+    .middleware(RequestValidation),
+);
+
+// The same endpoint, without the 415.
+const NotesWithout415Api = HttpApi.make("notes").add(
   HttpApiGroup.make("notes")
     .add(
       HttpApiEndpoint.post("create", "/notes", {
@@ -34,26 +53,35 @@ const NotesApi = HttpApi.make("notes").add(
     .middleware(RequestValidation),
 );
 
-// A small, valid JSON POST, as the router hands it to a raw handler.
-const notePost = () =>
+const jsonHeaders = { "content-type": "application/json" };
+
+// A small, valid JSON POST, as the router hands it to a raw handler. Its body
+// is bytes, which get no Content-Type of their own as a string would.
+const notePost = (headers: Record<string, string>) =>
   HttpServerRequest.fromWeb(
     new Request("http://localhost/notes", {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: "hello" }),
+      headers,
+      body: new TextEncoder().encode(JSON.stringify({ text: "hello" })),
     }),
   );
 
 // Reads the body above as `endpoint`'s raw handler does.
-const readBody = (endpoint: Parameters<typeof echoBody>[0]["endpoint"]) =>
+const readBody = (
+  endpoint: Parameters<typeof echoBody>[0]["endpoint"],
+  headers: Record<string, string> = jsonHeaders,
+) =>
   echoBody({ endpoint }).pipe(
-    Effect.provideService(HttpServerRequest.HttpServerRequest, notePost()),
+    Effect.provideService(
+      HttpServerRequest.HttpServerRequest,
+      notePost(headers),
+    ),
     Effect.exit,
   );
 
 // The users route tests read real bodies through the users contract; these
-// cover the limit this module reads from an endpoint, and the contracts that
-// leave out what it reads from them.
+// cover the content types this module accepts, the limit it reads from an
+// endpoint, and the contracts that leave out what it needs from them.
 describe("jsonBodyHandler", () => {
   it.effect("decodes a body within the endpoint's limit", () =>
     Effect.gen(function* () {
@@ -78,6 +106,49 @@ describe("jsonBodyHandler", () => {
       assert.deepStrictEqual(exit, Exit.fail(PayloadTooLargeResponse.body));
     }),
   );
+
+  for (const contentType of [
+    "application/json; charset=utf-8",
+    "Application/JSON",
+  ]) {
+    it.effect(`decodes a body sent as ${contentType}`, () =>
+      Effect.gen(function* () {
+        const endpoint = HttpApiEndpoint.post("createNote", "/notes", {
+          payload: NoteSchema,
+        }).pipe(withJsonBodyLimit(1024));
+
+        const exit = yield* readBody(endpoint, { "content-type": contentType });
+
+        assert.deepStrictEqual(exit, Exit.succeed({ text: "hello" }));
+      }),
+    );
+  }
+
+  // The limit of 8 bytes is under the body's 16: a body that is not JSON is
+  // refused before it is read.
+  for (const { name, headers } of [
+    { name: "text/plain", headers: { "content-type": "text/plain" } },
+    {
+      name: "a parameter that names application/json",
+      headers: { "content-type": "text/plain; charset=application/json" },
+    },
+    { name: "no content type", headers: {} },
+  ]) {
+    it.effect(`fails with the 415 body for ${name}, without reading`, () =>
+      Effect.gen(function* () {
+        const endpoint = HttpApiEndpoint.post("createNote", "/notes", {
+          payload: NoteSchema,
+        }).pipe(withJsonBodyLimit(8));
+
+        const exit = yield* readBody(endpoint, headers);
+
+        assert.deepStrictEqual(
+          exit,
+          Exit.fail(UnsupportedMediaTypeResponse.body),
+        );
+      }),
+    );
+  }
 
   it.effect("dies naming an endpoint whose contract sets no limit", () =>
     Effect.gen(function* () {
@@ -122,6 +193,21 @@ describe("jsonBodyHandler", () => {
 
       return notes.handleRaw("create", jsonBodyHandler(echo));
     });
+
+    assert.isTrue(Layer.isLayer(handlers));
+  });
+
+  it("registers only for an endpoint that declares the 415", () => {
+    const handlers = HttpApiBuilder.group(
+      NotesWithout415Api,
+      "notes",
+      (notes) =>
+        // Effect's own check reports the undeclared 415 as well, and has a
+        // directive of its own.
+        // @ts-expect-error: the endpoint cannot answer the handler's 415
+        // @effect-diagnostics-next-line missingEffectError:off
+        notes.handleRaw("create", jsonBodyHandler(echo)),
+    );
 
     assert.isTrue(Layer.isLayer(handlers));
   });

@@ -2,7 +2,11 @@ import { Context, Effect, Option, Schema, Stream } from "effect";
 import { HttpServerRequest } from "effect/http";
 import type { HttpApiEndpoint } from "effect/http-api";
 
-import { BadRequestResponse, PayloadTooLargeResponse } from "./api-schemas.ts";
+import {
+  BadRequestResponse,
+  PayloadTooLargeResponse,
+  UnsupportedMediaTypeResponse,
+} from "./api-schemas.ts";
 
 // The most bytes an endpoint's JSON body may have. `withJsonBodyLimit` sets it
 // on the endpoint's contract, and `jsonBody` reads it from there.
@@ -22,6 +26,23 @@ type JsonPayload<Endpoint> =
   HttpApiEndpoint.Payload<Endpoint> extends infer S extends Schema.Top
     ? S
     : never;
+
+// A Content-Type's media type ends where its parameters begin, such as
+// "; charset=utf-8", and is not case-sensitive (RFC 9110, section 8.3.1).
+const isJsonContentType = (contentType: string | undefined) =>
+  contentType?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
+
+// A page on another site can make a browser post text/plain, or a body with no
+// content type, without a CORS preflight, and application/json only with one.
+// Refusing the rest, before reading the body, keeps such a page from posting
+// JSON with a user's cookies.
+const requireJsonContentType = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+
+  if (!isJsonContentType(request.headers["content-type"])) {
+    return yield* Effect.fail(UnsupportedMediaTypeResponse.body);
+  }
+});
 
 type CollectedBody = {
   readonly chunks: Array<Uint8Array>;
@@ -76,9 +97,10 @@ const jsonPayloadSchema = (endpoint: BodyEndpoint) => {
   return undefined;
 };
 
-// Reads `endpoint`'s JSON body: at most the limit `withJsonBodyLimit` set on
-// its contract, decoded with the payload schema the contract declares, unknown
-// fields rejected. Fails with the public 400 or 413 body. A contract without a
+// Reads `endpoint`'s JSON body, which the request must send as
+// application/json: at most the limit `withJsonBodyLimit` set on its contract,
+// decoded with the payload schema the contract declares, unknown fields
+// rejected. Fails with the public 400, 413 or 415 body. A contract without a
 // JSON payload or a limit is a mistake in the code, so reading its body dies,
 // naming the endpoint.
 const jsonBody = <Endpoint extends BodyEndpoint>(endpoint: Endpoint) => {
@@ -104,7 +126,8 @@ const jsonBody = <Endpoint extends BodyEndpoint>(endpoint: Endpoint) => {
   // SAFETY: `schema` is the JSON payload `endpoint` declares, so it decodes to
   // that payload's type and needs its decoding services; the endpoint's
   // payload map only forgets which schema it holds.
-  return collectBody(maxBytes.value).pipe(
+  return requireJsonContentType.pipe(
+    Effect.andThen(collectBody(maxBytes.value)),
     Effect.map(joinBodyChunks),
     Effect.map((bytes) => textDecoder.decode(bytes)),
     Effect.flatMap(decodeBody),
@@ -114,7 +137,9 @@ const jsonBody = <Endpoint extends BodyEndpoint>(endpoint: Endpoint) => {
     }),
   ) as Effect.Effect<
     JsonPayload<Endpoint>["Type"],
-    typeof BadRequestResponse.body | typeof PayloadTooLargeResponse.body,
+    | typeof BadRequestResponse.body
+    | typeof PayloadTooLargeResponse.body
+    | typeof UnsupportedMediaTypeResponse.body,
     | HttpServerRequest.HttpServerRequest
     | JsonPayload<Endpoint>["DecodingServices"]
   >;
@@ -129,11 +154,12 @@ type RawBodyRequest = {
 
 // The handler of an endpoint with a JSON body: reads the body with `jsonBody`
 // and passes it to `handler`, with the raw handler's request for its params,
-// query and headers. It fails with the public 400 or 413 body, so the endpoint
-// must declare PayloadTooLargeResponse and sit behind RequestValidation, and
-// leaving either out does not compile. Neither does registering it with
-// `handle` instead of `handleRaw`: HttpApi would read the body first, without
-// the limit.
+// query and headers. It fails with the public 400, 413 or 415 body, so the
+// endpoint must declare PayloadTooLargeResponse and
+// UnsupportedMediaTypeResponse and sit behind RequestValidation, and leaving
+// any of them out does not compile. Neither does registering it with `handle`
+// instead of `handleRaw`: HttpApi would read the body first, without the
+// limit.
 const jsonBodyHandler =
   <Request extends RawBodyRequest, A, E, R>(
     handler: (
@@ -147,8 +173,8 @@ const jsonBodyHandler =
     );
 
 // Sets the body limit on a JSON endpoint's contract: `maxBytes` is what
-// `jsonBodyHandler` reads there, beside the PayloadTooLargeResponse the
-// endpoint must declare.
+// `jsonBodyHandler` reads there, beside the PayloadTooLargeResponse and
+// UnsupportedMediaTypeResponse the endpoint must declare.
 const withJsonBodyLimit =
   (maxBytes: number) =>
   <

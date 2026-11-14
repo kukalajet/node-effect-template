@@ -40,7 +40,7 @@ const documentedOperations = [
     method: "post",
     path: "/users",
     success: 201,
-    errors: [400, 409, 413, 500],
+    errors: [400, 409, 413, 415, 500],
   },
 ] as const;
 
@@ -181,6 +181,11 @@ describe("OpenAPI document", () => {
         status: 413,
         code: "PAYLOAD_TOO_LARGE",
         message: "The request payload is too large",
+      },
+      {
+        status: 415,
+        code: "UNSUPPORTED_MEDIA_TYPE",
+        message: "The request content type must be application/json",
       },
       {
         status: 500,

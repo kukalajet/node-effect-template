@@ -93,6 +93,14 @@ await expectStatus(
   postUser(JSON.stringify({ ...input, displayName: "a".repeat(64 * 1024) })),
 );
 
+// A second user, whom none of the requests below may create.
+const grace = { ...input, email: "grace@example.com" };
+
+await expectStatus("/users", 415, {
+  ...postUser(JSON.stringify(grace)),
+  headers: { "content-type": "text/plain" },
+});
+
 await expectStatus("/not-a-route", 404);
 
 console.log("API smoke checks passed against PostgreSQL");
