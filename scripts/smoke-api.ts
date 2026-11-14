@@ -114,6 +114,12 @@ await expectStatus("/users", 415, {
   headers: { "content-type": "text/plain" },
 });
 
-await expectStatus("/not-a-route", 404);
+const notFound = { error: { code: "NOT_FOUND", message: "Route not found" } };
+deepStrictEqual(await (await request("/not-a-route", 404)).json(), notFound);
+
+deepStrictEqual(
+  await (await request("/users", 404, { method: "DELETE" })).json(),
+  notFound,
+);
 
 console.log("API smoke checks passed against PostgreSQL");

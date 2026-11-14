@@ -1,10 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { OpenApi } from "effect/http-api";
 
 import { DatabaseHealth, UserRepository } from "@node-effect/application";
 
+import { accessLog } from "../access-log.ts";
 import { Api } from "../api-contract.ts";
 import { ApiRoutes } from "../app.ts";
 
@@ -22,6 +23,10 @@ const serve = () =>
   HttpRouter.toWebHandler(TestRoutes, { disableLogger: true });
 
 const get = (path: string) => new Request(`http://localhost${path}`);
+
+// The fake repository has no findById, and a member that Layer.mock was not
+// given dies when used, so reading this user is a handler that dies.
+const dyingRequest = () => get("/users/d5b9d3de-fda5-4a78-b8a5-2f3b60634d95");
 
 // Every operation the API serves. A new endpoint must be added here, which
 // makes the checks below cover it.
@@ -100,21 +105,79 @@ describe("API composition", () => {
     }
   });
 
-  it("answers 404 for a route the contract does not declare", async () => {
+  it("answers 404 NOT_FOUND for a route the contract does not declare", async () => {
     const { dispose, handler } = serve();
 
     try {
       for (const request of [
         get("/unknown"),
         new Request("http://localhost/users", { method: "DELETE" }),
+        new Request("http://localhost/users", { method: "OPTIONS" }),
       ]) {
         const response = await handler(request);
 
         assert.strictEqual(response.status, 404);
+
+        assert.deepStrictEqual(await response.json(), {
+          error: { code: "NOT_FOUND", message: "Route not found" },
+        });
       }
     } finally {
       await dispose();
     }
+  });
+
+  it("answers 500 INTERNAL_ERROR when a handler dies", async () => {
+    const { dispose, handler } = serve();
+
+    try {
+      const response = await handler(dyingRequest());
+
+      assert.strictEqual(response.status, 500);
+
+      assert.deepStrictEqual(await response.json(), {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "The request could not be completed",
+        },
+      });
+    } finally {
+      await dispose();
+    }
+  });
+
+  it("logs both as before: only the defect with its cause", async () => {
+    const lines: Array<string> = [];
+
+    const logger = Logger.map(Logger.formatJson, (line) => {
+      lines.push(line);
+    });
+
+    const { dispose, handler } = HttpRouter.toWebHandler(
+      Layer.mergeAll(TestRoutes, Logger.layer([logger])),
+      { disableLogger: true, middleware: accessLog },
+    );
+
+    try {
+      await handler(get("/unknown"));
+      await handler(dyingRequest());
+    } finally {
+      await dispose();
+    }
+
+    const [unmatched, died] = lines.map((line) => JSON.parse(line));
+
+    assert.deepStrictEqual(
+      [unmatched.level, unmatched.annotations.status, unmatched.cause],
+      ["INFO", 404, undefined],
+    );
+
+    assert.deepStrictEqual(
+      [died.level, died.annotations.status],
+      ["ERROR", 500],
+    );
+
+    assert.include(died.cause, "findById");
   });
 });
 

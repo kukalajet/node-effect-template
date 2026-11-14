@@ -106,7 +106,9 @@ body that is not sent as `application/json`, with or without a `charset`
 parameter, is `415 UNSUPPORTED_MEDIA_TYPE` whatever it holds: a browser can post
 `text/plain`, or a body with no content type, to another site without a CORS
 preflight. A failed database operation is `500 DATABASE_ERROR`; failed readiness
-is `503 DATABASE_UNAVAILABLE`. Responses never carry the cause, and logs carry
+is `503 DATABASE_UNAVAILABLE`. Two codes belong to no endpoint: a request that
+matches no route is `404 NOT_FOUND`, and a failure the API did not expect, a
+defect, is `500 INTERNAL_ERROR`. Responses never carry the cause, and logs carry
 only safe diagnostics such as a SQLSTATE code.
 
 The API starts while the database is unavailable, because the connection pool
@@ -129,8 +131,8 @@ connecting gives up. A statement, lock or pool timeout, or a call that gives up,
 is a failed database operation: `500 DATABASE_ERROR`, or `503` for readiness,
 logged with its safe diagnostics. A session ended for idling inside a
 transaction takes its connection with it, so that transaction fails with a
-defect instead, which the API answers with an empty 500 and the worker with a
-restart (see `packages/database/src/postgres.ts`).
+defect instead, which the API answers with `500 INTERNAL_ERROR` and the worker
+with a restart (see `packages/database/src/postgres.ts`).
 
 `DATABASE_STATEMENT_TIMEOUT_MS` accepts 1 to 2147483647, PostgreSQL's limit.
 Below 8000, a statement waiting for a lock is cancelled as a statement timeout

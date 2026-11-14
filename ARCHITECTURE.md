@@ -66,7 +66,7 @@ apps/
     main.ts                       # HTTP server, logging, runtime launch
     request-services-live.ts      # adapters behind the ports routes use
     access-log.ts                 # one line per request, 5xx causes redacted
-    app.ts                        # HttpApi routes, OpenAPI and Swagger UI
+    app.ts                        # HttpApi routes, OpenAPI, Swagger UI, 404 and 500 envelope
     api-contract.ts               # root HttpApi: every group, OpenAPI metadata
     api-schemas.ts                # public error envelope, shared responses
     api-middleware.ts             # RequestValidation: schema errors to 400
@@ -286,6 +286,12 @@ Errors follow these conventions:
   dies when the body is read, naming the endpoint.
 - A persistence failure becomes `500 DATABASE_ERROR`, or
   `503 DATABASE_UNAVAILABLE` for readiness, through `http-errors.ts`.
+- The server answers two errors by itself, outside any contract, and without a
+  body: 404 for a request that matches no route, and 500 for a handler that
+  dies. `app.ts` gives a 404 or a 500 that has no body the envelope as it is
+  sent, `404 NOT_FOUND` or `500 INTERNAL_ERROR`, built from `publicError`'s
+  `status` and `body`. Only what is sent changes: the request still fails with
+  its cause, so the access log logs it as before.
 
 ## Schemas belong to their boundary
 
