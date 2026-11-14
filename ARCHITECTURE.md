@@ -66,7 +66,7 @@ apps/
     main.ts                       # HTTP server, logging, runtime launch
     request-services-live.ts      # adapters behind the ports routes use
     access-log.ts                 # one line per request, 5xx causes redacted
-    app.ts                        # HttpApi routes, OpenAPI and Swagger UI
+    app.ts                        # HttpApi routes, OpenAPI, Swagger UI, 404 and 500 envelope
     api-contract.ts               # root HttpApi: every group, OpenAPI metadata
     api-schemas.ts                # public error envelope, shared responses
     api-middleware.ts             # RequestValidation: schema errors to 400
@@ -263,21 +263,35 @@ Errors follow these conventions:
   encode the server's own response stay internal errors.
 - An endpoint with a JSON body states everything about it in its contract: its
   `payload` schema, its byte limit with `.pipe(withJsonBodyLimit(bytes))`, and
-  `PayloadTooLargeResponse` among its errors, behind `RequestValidation`. Its
-  handler is registered with `.handleRaw(name, jsonBodyHandler(handler))`; both
-  helpers come from `request-body.ts`, and nothing else reads a body.
-  `jsonBodyHandler` decodes the body with that payload schema, stops reading
-  past the limit (`413 PAYLOAD_TOO_LARGE`), rejects unknown fields
-  (`400 INVALID_REQUEST`), and passes the body to `handler`, with the request
-  for its params, query and headers. It fails with those bodies, so an endpoint
-  that leaves `PayloadTooLargeResponse` out of its errors, or a group that is
-  not behind `RequestValidation`, does not compile. Neither does `handle` in
-  place of `handleRaw`, with which HttpApi would read the body first: its own
-  JSON decoding cannot answer 413, and past `MaxBodySize` it fails the request
-  as a defect. A contract without the payload or the limit dies when the body is
-  read, naming the endpoint.
+  `PayloadTooLargeResponse` and `UnsupportedMediaTypeResponse` among its errors,
+  behind `RequestValidation`. Its handler is registered with
+  `.handleRaw(name, jsonBodyHandler(handler))`; both helpers come from
+  `request-body.ts`, and nothing else reads a body. `jsonBodyHandler` refuses a
+  request whose media type is not `application/json` before reading it
+  (`415 UNSUPPORTED_MEDIA_TYPE`), because a browser can post `text/plain`, or a
+  body with no content type, to another site without a CORS preflight. It then
+  decodes the body with that payload schema, stops reading past the limit
+  (`413 PAYLOAD_TOO_LARGE`), rejects unknown fields and text that is not valid
+  Unicode (`400 INVALID_REQUEST`), and passes the body to `handler`, with the
+  request for its params, query and headers. Such text is bytes that are not
+  UTF-8, or a lone surrogate written as an escape such as `\ud800`, either of
+  which would be stored as U+FFFD, the replacement character; the reader refuses
+  it, rather than each payload schema, so that every string of every endpoint is
+  covered. It fails with those bodies, so an endpoint that leaves
+  `PayloadTooLargeResponse` or `UnsupportedMediaTypeResponse` out of its errors,
+  or a group that is not behind `RequestValidation`, does not compile. Neither
+  does `handle` in place of `handleRaw`, with which HttpApi would read the body
+  first: its own JSON decoding cannot answer 413, and past `MaxBodySize` it
+  fails the request as a defect. A contract without the payload or the limit
+  dies when the body is read, naming the endpoint.
 - A persistence failure becomes `500 DATABASE_ERROR`, or
   `503 DATABASE_UNAVAILABLE` for readiness, through `http-errors.ts`.
+- The server answers two errors by itself, outside any contract, and without a
+  body: 404 for a request that matches no route, and 500 for a handler that
+  dies. `app.ts` gives a 404 or a 500 that has no body the envelope as it is
+  sent, `404 NOT_FOUND` or `500 INTERNAL_ERROR`, built from `publicError`'s
+  `status` and `body`. Only what is sent changes: the request still fails with
+  its cause, so the access log logs it as before.
 
 ## Schemas belong to their boundary
 

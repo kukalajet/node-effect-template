@@ -31,7 +31,7 @@ const expectStatus = async (
 const isObject = (value: unknown): value is object =>
   typeof value === "object" && value !== null;
 
-const postUser = (body: string): RequestInit => ({
+const postUser = (body: string | Uint8Array): RequestInit => ({
   method: "POST",
   headers: { "content-type": "application/json" },
   body,
@@ -93,6 +93,33 @@ await expectStatus(
   postUser(JSON.stringify({ ...input, displayName: "a".repeat(64 * 1024) })),
 );
 
-await expectStatus("/not-a-route", 404);
+// A second user, whom none of the requests below may create.
+const grace = { ...input, email: "grace@example.com" };
+
+// Latin-1 writes U+00FF and U+00FE as the bytes 0xff and 0xfe, which UTF-8
+// never uses, and JSON.stringify writes a lone surrogate as its escape,
+// \ud800.
+for (const body of [
+  Buffer.from(
+    JSON.stringify({ ...grace, displayName: "a\u00ff\u00feb" }),
+    "latin1",
+  ),
+  JSON.stringify({ ...grace, displayName: "a\ud800b" }),
+]) {
+  await expectStatus("/users", 400, postUser(body));
+}
+
+await expectStatus("/users", 415, {
+  ...postUser(JSON.stringify(grace)),
+  headers: { "content-type": "text/plain" },
+});
+
+const notFound = { error: { code: "NOT_FOUND", message: "Route not found" } };
+deepStrictEqual(await (await request("/not-a-route", 404)).json(), notFound);
+
+deepStrictEqual(
+  await (await request("/users", 404, { method: "DELETE" })).json(),
+  notFound,
+);
 
 console.log("API smoke checks passed against PostgreSQL");

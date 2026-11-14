@@ -77,12 +77,18 @@ const fakeRepository = (overrides: Partial<UserRepository["Service"]> = {}) => {
 
 const get = (path: string) => new Request(`http://localhost${path}`);
 
-const post = (body: string) =>
-  new Request("http://localhost/users", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body,
-  });
+const jsonHeaders = { "content-type": "application/json" };
+
+const post = (
+  body: string | Uint8Array,
+  headers: Record<string, string> = jsonHeaders,
+) => new Request("http://localhost/users", { method: "POST", headers, body });
+
+// A valid body as bytes, which get no Content-Type of their own as a string
+// would.
+const validBodyBytes = new TextEncoder().encode(
+  JSON.stringify({ email: "grace@example.com", displayName: "Grace Hopper" }),
+);
 
 const invalidRequest = {
   error: {
@@ -258,6 +264,27 @@ describe("POST /users", () => {
       name: "a NUL character in the display name",
       body: JSON.stringify({ email: user.email, displayName: "a\u0000b" }),
     },
+    {
+      // Latin-1 writes U+00FF and U+00FE as the bytes 0xff and 0xfe, which
+      // UTF-8 never uses.
+      name: "a display name that is not UTF-8",
+      body: Buffer.from(
+        JSON.stringify({ email: user.email, displayName: "a\u00ff\u00feb" }),
+        "latin1",
+      ),
+    },
+    {
+      // JSON.stringify writes a lone surrogate as its escape, \ud800.
+      name: "a lone surrogate in the email",
+      body: JSON.stringify({
+        email: "a\ud800b@example.com",
+        displayName: "Ada",
+      }),
+    },
+    {
+      name: "a lone surrogate in the display name",
+      body: JSON.stringify({ email: user.email, displayName: "a\ud800b" }),
+    },
     { name: "a missing field", body: JSON.stringify({ email: user.email }) },
     {
       name: "an unknown field",
@@ -275,6 +302,28 @@ describe("POST /users", () => {
 
       assert.strictEqual(response.status, 400);
       assert.deepStrictEqual(await response.json(), invalidRequest);
+      assert.deepStrictEqual(repository.inserted, []);
+    });
+  }
+
+  for (const { name, headers } of [
+    { name: "sent as text/plain", headers: { "content-type": "text/plain" } },
+    { name: "without a content type", headers: {} },
+  ]) {
+    it(`answers 415 for a valid body ${name} without inserting`, async () => {
+      const repository = fakeRepository();
+      const server = serve(repository.layer);
+      const response = await server.fetch(post(validBodyBytes, headers));
+
+      assert.strictEqual(response.status, 415);
+
+      assert.deepStrictEqual(await response.json(), {
+        error: {
+          code: "UNSUPPORTED_MEDIA_TYPE",
+          message: "The request content type must be application/json",
+        },
+      });
+
       assert.deepStrictEqual(repository.inserted, []);
     });
   }

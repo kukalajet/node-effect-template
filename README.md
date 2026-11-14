@@ -81,16 +81,16 @@ so `pnpm dev:api` and `pnpm dev:worker` run as the owner, unlike the containers
 
 ## Application behavior
 
-| Endpoint            | Purpose                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `GET /health/live`  | Process liveness; never touches PostgreSQL                                       |
-| `GET /health/ready` | PostgreSQL readiness (`select 1`, 5 second timeout); 503 when unavailable        |
-| `GET /health`       | Alias for readiness                                                              |
-| `GET /users`        | Up to `limit` users (1–100, default 50), newest first; 400 for any other `limit` |
-| `GET /users/:id`    | One user; 400 for a malformed id, 404 when unknown                               |
-| `POST /users`       | 201 with the user; 400 for invalid input, 409 for a taken email, 413 > 4 KiB     |
-| `GET /openapi.json` | OpenAPI 3.1 document generated from the endpoint contracts                       |
-| `GET /docs`         | Swagger UI for that document                                                     |
+| Endpoint            | Purpose                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GET /health/live`  | Process liveness; never touches PostgreSQL                                                                          |
+| `GET /health/ready` | PostgreSQL readiness (`select 1`, 5 second timeout); 503 when unavailable                                           |
+| `GET /health`       | Alias for readiness                                                                                                 |
+| `GET /users`        | Up to `limit` users (1–100, default 50), newest first; 400 for any other `limit`                                    |
+| `GET /users/:id`    | One user; 400 for a malformed id, 404 when unknown                                                                  |
+| `POST /users`       | 201 with the user; 400 for invalid input, 409 for a taken email, 413 > 4 KiB, 415 unless sent as `application/json` |
+| `GET /openapi.json` | OpenAPI 3.1 document generated from the endpoint contracts                                                          |
+| `GET /docs`         | Swagger UI for that document                                                                                        |
 
 Every error response has the same shape, and the contract lists each code an
 endpoint can return:
@@ -99,11 +99,17 @@ endpoint can return:
 { "error": { "code": "USER_NOT_FOUND", "message": "User not found" } }
 ```
 
-Invalid path parameters, query strings, headers, malformed JSON and unknown
-fields are `400 INVALID_REQUEST`. A failed database operation is
-`500 DATABASE_ERROR`; failed readiness is `503 DATABASE_UNAVAILABLE`. Responses
-never carry the cause, and logs carry only safe diagnostics such as a SQLSTATE
-code.
+Invalid path parameters, query strings, headers, malformed JSON, unknown fields
+and a body whose text is not valid Unicode (bytes that are not UTF-8, or a lone
+surrogate written as an escape such as `\ud800`) are `400 INVALID_REQUEST`. A
+body that is not sent as `application/json`, with or without a `charset`
+parameter, is `415 UNSUPPORTED_MEDIA_TYPE` whatever it holds: a browser can post
+`text/plain`, or a body with no content type, to another site without a CORS
+preflight. A failed database operation is `500 DATABASE_ERROR`; failed readiness
+is `503 DATABASE_UNAVAILABLE`. Two codes belong to no endpoint: a request that
+matches no route is `404 NOT_FOUND`, and a failure the API did not expect, a
+defect, is `500 INTERNAL_ERROR`. Responses never carry the cause, and logs carry
+only safe diagnostics such as a SQLSTATE code.
 
 The API starts while the database is unavailable, because the connection pool
 opens connections on demand. Liveness stays 200 during an outage; readiness and
@@ -125,8 +131,8 @@ connecting gives up. A statement, lock or pool timeout, or a call that gives up,
 is a failed database operation: `500 DATABASE_ERROR`, or `503` for readiness,
 logged with its safe diagnostics. A session ended for idling inside a
 transaction takes its connection with it, so that transaction fails with a
-defect instead, which the API answers with an empty 500 and the worker with a
-restart (see `packages/database/src/postgres.ts`).
+defect instead, which the API answers with `500 INTERNAL_ERROR` and the worker
+with a restart (see `packages/database/src/postgres.ts`).
 
 `DATABASE_STATEMENT_TIMEOUT_MS` accepts 1 to 2147483647, PostgreSQL's limit.
 Below 8000, a statement waiting for a lock is cancelled as a statement timeout
