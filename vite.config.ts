@@ -6,12 +6,13 @@ import type { OxlintConfig } from "vite-plus/lint";
 
 // Lint and format rules live in .oxlintrc.json and .oxfmtrc.json so editors and
 // the standalone oxlint and oxfmt binaries apply the same rules as `vp check`.
-// Both tools validate these files against their own schemas when loading them.
-const readJson = (fileName: string) =>
+const readJson = (fileName: string): unknown =>
   JSON.parse(readFileSync(new URL(fileName, import.meta.url), "utf8"));
 
-const fmt: OxfmtConfig = readJson("./.oxfmtrc.json");
-const lint: OxlintConfig = readJson("./.oxlintrc.json");
+// SAFETY: oxfmt validates the file against its schema when it loads it.
+const fmt = readJson("./.oxfmtrc.json") as OxfmtConfig;
+// SAFETY: oxlint validates the file against its schema when it loads it.
+const lint = readJson("./.oxlintrc.json") as OxlintConfig;
 
 const config = defineConfig({
   fmt,

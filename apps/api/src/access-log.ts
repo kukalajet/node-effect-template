@@ -1,4 +1,4 @@
-import { Cause, Clock, Effect, Exit, Option } from "effect";
+import { type Cause, Clock, Effect, Exit, Option } from "effect";
 import {
   HttpMiddleware,
   HttpServerError,

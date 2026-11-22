@@ -5,7 +5,8 @@
     "correctness": "error"
   },
   "options": {
-    "reportUnusedDisableDirectives": "error"
+    "reportUnusedDisableDirectives": "error",
+    "typeAware": true
   },
   "ignorePatterns": [
     "drizzle/**",
@@ -76,6 +77,49 @@
         ]
       }
     ],
+
+    "typescript/await-thenable": "error",
+    "typescript/consistent-type-imports": [
+      "error",
+      { "fixStyle": "inline-type-imports" }
+    ],
+    "typescript/no-array-delete": "error",
+    "typescript/no-base-to-string": [
+      "error",
+      {
+        "ignoredTypeNames": [
+          "Error",
+          "RegExp",
+          "URL",
+          "URLSearchParams",
+          "Redacted<string>"
+        ]
+      }
+    ],
+    "typescript/no-duplicate-type-constituents": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-for-in-array": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/no-misused-spread": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/no-unsafe-unary-minus": "error",
+    "typescript/only-throw-error": "error",
+    "typescript/require-array-sort-compare": "error",
+    "typescript/return-await": ["error", "error-handling-correctness-only"],
+    "typescript/switch-exhaustiveness-check": [
+      "error",
+      {
+        "allowDefaultCaseForExhaustiveSwitch": true,
+        "considerDefaultExhaustiveForUnions": true
+      }
+    ],
+    "typescript/unbound-method": "error",
+    "typescript/use-unknown-in-catch-callback-variable": "error",
 
     "anti-slop/blank-line-around-blocks": "error",
     "anti-slop/blank-line-around-multiline-statements": "error",
@@ -231,7 +275,12 @@
         "anti-slop/no-inline-regex-match": "off",
         "eslint/no-console": "off",
         "eslint/no-restricted-properties": "off",
-        "typescript/no-non-null-assertion": "off"
+        "typescript/no-non-null-assertion": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off"
       }
     }
   ]

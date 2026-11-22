@@ -37,6 +37,7 @@
     "effect": "catalog:",
     "oxfmt": "0.74.0",
     "oxlint": "1.89.0",
+    "oxlint-tsgolint": "7.0.2004",
     "pg": "8.23.1",
     "typescript": "7.1.0-beta",
     "vite-plus": "1.4.0",
