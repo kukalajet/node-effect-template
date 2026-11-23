@@ -8,7 +8,7 @@
 # The Node version equals devEngines.runtime in package.json, and the pnpm
 # version below equals packageManager: scripts/toolchain.test.ts fails `pnpm
 # check` when they differ, and the `workspace` stage checks Node again.
-ARG NODE_IMAGE=node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec
+ARG NODE_IMAGE=node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 
 FROM ${NODE_IMAGE} AS workspace
 # Node 26 ships without Corepack. Install the pinned pnpm before entering /app:
@@ -51,12 +51,13 @@ RUN rm -r /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 # The pinned base image ships two packages whose High vulnerabilities fail the
 # image scan, and its tag's current digest ships them too. Debian has fixed
 # both, so upgrade them, and nothing else:
-# - apt 3.0.3 and its library (CVE-2026-109518), fixed in 3.0.4.
 # - zlib1g 1.3.1-1+b1 (CVE-2026-76844, CVE-2026-85091), fixed in 1.3.1-1+deb13u1.
+# - libc6 and libc-bin 2.41-12+deb13u4 (CVE-2026-19499, CVE-2026-5435), fixed in
+#   2.41-12+deb13u5.
 # Drop a package from this list once the base image ships its fixed version.
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends --only-upgrade \
-    apt libapt-pkg7.0 zlib1g \
+    libc-bin libc6 zlib1g \
   && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 WORKDIR /app
