@@ -96,6 +96,7 @@
         "oxlint",
         "oxfmt",
         "@oxlint/plugins",
+        "oxlint-tsgolint",
       ],
       separateMajorMinor: false,
     },

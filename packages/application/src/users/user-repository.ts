@@ -1,10 +1,10 @@
-import { Context, Effect, Schema } from "effect";
+import { Context, type Effect, Schema } from "effect";
 
-import {
-  type CreateUser,
-  type User,
+import type {
+  CreateUser,
+  User,
   UserAlreadyExists,
-  type UserIdType,
+  UserIdType,
   UserNotFound,
 } from "@node-effect/domain";
 

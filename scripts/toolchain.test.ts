@@ -97,7 +97,7 @@ describe("the Vite+ toolchain", () => {
     );
   });
 
-  it.each(["oxlint", "oxfmt", "@oxlint/plugins"])(
+  it.each(["oxlint", "oxfmt", "@oxlint/plugins", "oxlint-tsgolint"])(
     "pins the %s that vite-plus pins",
     (name) => {
       assertSamePin(name, {

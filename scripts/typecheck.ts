@@ -22,9 +22,11 @@ const findTsc = () => {
   try {
     return getExePath();
   } catch (error) {
-    const manifest: Manifest = JSON.parse(
+    // SAFETY: package.json is this repository's manifest, an object, and
+    // Manifest's one field is optional and read with `?.`.
+    const manifest = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-    );
+    ) as Manifest;
 
     const pin = (name: string) => manifest.devDependencies?.[name] ?? "(none)";
 

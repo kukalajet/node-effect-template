@@ -30,6 +30,9 @@ Lint (`.oxlintrc.json`) also requires:
   directly in `src/` (`request-services-live.ts`, `worker-runtime.ts`).
 - No non-null assertions (`x!`), no `{…} as T` (annotate the variable or use
   `satisfies`), and no shadowed names.
+- Type-aware rules: no `any` flowing into typed code outside tests (parse what
+  `JSON.parse` returns, or assert its type under a `// SAFETY:` comment), no
+  floating promises, and a `switch` over a union covers every member.
 
 Node runs the TypeScript sources directly by stripping types, so relative
 imports end in `.ts` (lint rejects `.js`), type-only imports use `import type`,

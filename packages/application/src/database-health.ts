@@ -1,4 +1,4 @@
-import { Context, Effect, Schema } from "effect";
+import { Context, type Effect, Schema } from "effect";
 
 import { persistenceFailureFields } from "./persistence-failure.ts";
 

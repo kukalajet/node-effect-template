@@ -319,6 +319,18 @@ anything leaves the process.
   `*.postgres.ts`, `*.fixtures.ts` and `postgres.setup.ts` may use `console`,
   `process.env`, `Effect.run*` and `!`. The `Effect.run*` guard matches the call
   as written, so `import { runPromise } from "effect/Effect"` slips past it.
+- **Type-aware lint** (`options.typeAware`) runs the rules that need the type
+  checker through `oxlint-tsgolint`, which `vite-plus` pins; the root
+  `devDependencies` repeat it so editors and the standalone `oxlint` find it.
+  They reject floating and misused promises, a `switch` that misses a member of
+  a union, throwing a non-`Error`, an assertion the types already make
+  redundant, an import used only as a type without `type`, and `any` flowing
+  into typed code: parse what `JSON.parse` returns, or assert its type under a
+  `SAFETY:` comment that says what guarantees it. Tests, `*.postgres.ts`,
+  `*.fixtures.ts` and `postgres.setup.ts` may use `any`, which they get from
+  parsing JSON log lines. `String()` may take a `Redacted`, which prints
+  `<redacted>`. `typescript/no-unsafe-type-assertion` stays off, since every
+  assertion already needs a `SAFETY:` comment.
 - **Formatting** follows `.oxfmtrc.json`: width 80, double quotes, semicolons,
   trailing commas, and Markdown prose wrapped at 80 columns. Import sorting is
   lint's job, in five groups: `node:` built-ins, packages, `@node-effect/*`,
@@ -327,8 +339,9 @@ anything leaves the process.
   `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, and unused-code
   checks). `pnpm typecheck` runs TypeScript 7's `tsc` as `@effect/tsgo` builds
   it, with the Effect language service inside: `scripts/typecheck.ts` picks the
-  build made from the installed `typescript`, and fails when there is none. Lint
-  is not type-aware; the type check is the authoritative one.
+  build made from the installed `typescript`, and fails when there is none.
+  Type-aware lint reads types through `oxlint-tsgolint`'s own TypeScript build,
+  without Effect's diagnostics; the type check is the authoritative one.
 - **Effect's diagnostics.** The type check also reports mistakes that plain
   `tsc` passes, such as an Effect that is built but never run, `yield` written
   for `yield*`, and an Effect returned to a plain Vitest `it`, which passes
@@ -727,7 +740,7 @@ appears in several: Node in `devEngines.runtime` and the `Dockerfile`; pnpm in
 `packageManager`, `devEngines.packageManager` and the `Dockerfile`; each Docker
 image in every file that names it; the scan in `ci.yml` and `scan.yml`, and its
 Grype version in `scripts/scan-image.sh`; and the oxlint, oxfmt,
-`@oxlint/plugins`, Vitest and Vite versions that the installed `vite-plus` pins.
+`@oxlint/plugins`, `oxlint-tsgolint`, Vitest and Vite versions `vite-plus` pins.
 oxc and Vitest often release before Vite+ pins the release, so the Vite+ group
 can fail that test until Renovate adds the `vite-plus` release that pins them;
 wait for it. It also runs the type check's `tsc` and fails unless it is the one
