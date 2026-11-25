@@ -256,7 +256,7 @@
               },
               {
                 "regex": "^(@node-effect/database|effect/sql)(/.*)?$",
-                "message": "Feature code uses application ports. Provide their adapters in the app's composition root (request-services-live.ts, worker-runtime.ts)."
+                "message": "Feature code uses application ports. Provide their adapters in the app's composition root (request-services-live.ts, worker-runtime.ts, command-services-live.ts)."
               }
             ]
           }

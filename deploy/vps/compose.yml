@@ -127,6 +127,18 @@ services:
       postgresql:
         condition: service_healthy
 
+  # Runs one command by hand, then exits: bin/compose run --rm cli users list.
+  # The `tools` profile keeps it out of `up`, so out of releases and of the
+  # monitor's checks.
+  cli:
+    <<: *app
+    entrypoint: ["node", "apps/cli/src/main.ts"]
+    restart: "no"
+    profiles: ["tools"]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
   # The only public ingress: an outbound Cloudflare Tunnel whose public hostname
   # points at http://api:8000.
   cloudflared:

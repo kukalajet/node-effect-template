@@ -22,6 +22,18 @@
     "attachSimplePort": 9230
   },
   {
+    "label": "Debug CLI",
+    "adapter": "JavaScript",
+    "request": "launch",
+    "type": "pwa-node",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "program": "$ZED_WORKTREE_ROOT/apps/cli/src/main.ts",
+    "args": ["users", "list"],
+    "runtimeExecutable": "$ZED_WORKTREE_ROOT/node_modules/.bin/node",
+    "runtimeArgs": ["--inspect-wait=127.0.0.1:9231", "--env-file=.env"],
+    "attachSimplePort": 9231
+  },
+  {
     "label": "Debug Vitest (current file)",
     "adapter": "JavaScript",
     "request": "launch",

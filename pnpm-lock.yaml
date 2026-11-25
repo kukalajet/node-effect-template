@@ -257,6 +257,27 @@ importers:
         specifier: 'catalog:'
         version: 4.0.6
 
+  apps/cli:
+    dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.6(effect@4.0.6)
+      '@node-effect/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@node-effect/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@node-effect/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@node-effect/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.6
+
   apps/worker:
     dependencies:
       '@effect/platform-node':

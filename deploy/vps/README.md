@@ -16,7 +16,7 @@ environment; local development and CI are the checks before production.
 
 | Path                                                                                                                   | Purpose                                                                                                               |
 | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| [`compose.yml`](compose.yml)                                                                                           | Production services: PostgreSQL, migrate, API, worker, `cloudflared`                                                  |
+| [`compose.yml`](compose.yml)                                                                                           | Production services: PostgreSQL, migrate, API, worker, CLI, `cloudflared`                                             |
 | [`bin/`](bin/)                                                                                                         | `compose`, `release`, `backup`, `verify-backup` and `monitor` scripts, and `heartbeat.sh`, which the last three share |
 | [`systemd/`](systemd/)                                                                                                 | Services and timers: the nightly backup, the weekly backup check, and the monitor every 5 minutes                     |
 | [`env.example`](env.example), [`restic.env.example`](restic.env.example), [`monitor.env.example`](monitor.env.example) | Templates for the server's secrets files                                                                              |
@@ -32,12 +32,13 @@ The image carries this directory as `/app/deploy/vps`. Each release installs
 | `api`         | `<APP_IMAGE_REPOSITORY>:<sha>@<digest>`             | `cloudflared`                          | None                   |
 | `worker`      | Same image, `node apps/worker/src/main.ts`          | Nothing inbound                        | None                   |
 | `migrate`     | Same image, `node packages/database/src/migrate.ts` | Nothing inbound; runs once per release | None                   |
+| `cli`         | Same image, `node apps/cli/src/main.ts`             | Nothing inbound; runs by hand          | None                   |
 | `postgresql`  | `postgres` Alpine image, pinned by digest           | Docker network; host `127.0.0.1:5432`  | `postgres_data` volume |
 
 Every service has a read-only root filesystem, drops all Linux capabilities and
-sets `no-new-privileges`. `api`, `worker` and `migrate` write only to a 16 MB
-`/tmp` and run at most 128 processes and threads. `postgresql` starts as the
-image's `postgres` user (uid 70) and writes only to its volume,
+sets `no-new-privileges`. `api`, `worker`, `migrate` and `cli` write only to a
+16 MB `/tmp` and run at most 128 processes and threads. `postgresql` starts as
+the image's `postgres` user (uid 70) and writes only to its volume,
 `/var/run/postgresql` and `/tmp`. Keep `postgres_data` a named volume: Docker
 creates it owned by that user, while a bind-mounted host directory would have to
 be given to uid 70 first. `cloudflared` runs as its image's non-root user and
@@ -49,7 +50,8 @@ writes nothing.
   pinned by digest; until the first release, its tag and digest are placeholders
   that fail if started.
 - `migrate` runs only when `bin/release` invokes it, under the `release`
-  profile.
+  profile, and `cli` only when you run it, under the `tools` profile, with
+  PostgreSQL as its only dependency.
 - Every long-running service (`postgresql`, `api`, `worker`, `cloudflared`)
   restarts unless stopped and has a memory ceiling. The worker exits on any
   failure and relies on that restart policy. Every service, `migrate` included,
@@ -88,7 +90,7 @@ On the server the files are laid out as:
 
 ### Database roles
 
-`api` and `worker` connect as the runtime role, `APP_DATABASE_USER`
+`api`, `worker` and `cli` connect as the runtime role, `APP_DATABASE_USER`
 (`node_effect_app` by default). It can log in and read, insert, update and
 delete rows in the tables of the `public` schema, and use their sequences. It is
 not a superuser and belongs to no other role, so it cannot create, alter, drop
@@ -772,6 +774,7 @@ cd /opt/node-effect-template
 bin/compose ps
 bin/compose logs -f --since 10m api worker
 bin/compose restart worker
+bin/compose run --rm cli users list
 bin/compose exec postgresql sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"'
 tail releases.log
 ```
@@ -784,6 +787,11 @@ the backup check and the monitor last ran and run next, and
 `bin/compose exec postgresql` runs as the `postgres` user, not root, and the
 container's root filesystem is read-only: pass files on standard input, as the
 full restore does, rather than copying them into the container.
+
+`bin/compose run --rm cli` runs one CLI command in a container of its own, as
+the runtime role, with the current release's image; `--help` lists the commands.
+Add `-T` before `cli` to read its output in a script: with a terminal, Docker
+sends standard error to standard output too.
 
 - **Find a request:** Cloudflare gives every request a ray ID, which the client
   receives in the `cf-ray` response header.

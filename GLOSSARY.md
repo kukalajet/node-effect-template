@@ -1,7 +1,7 @@
 # Node Effect backend template
 
-A reusable backend starter: an HTTP API and a worker over PostgreSQL. These are
-the terms its code and documents use.
+A reusable backend starter: an HTTP API, a worker and a CLI over PostgreSQL.
+These are the terms its code and documents use.
 
 ## Language
 
@@ -23,9 +23,9 @@ failed validation. _Avoid_: error details
 such as a user that does not exist or an email that is already taken. _Avoid_:
 business exception
 
-**Runtime role**: The database role the API and the worker connect as. It can
-read and write the application's data but cannot change the schema, which only
-the database's owner can. _Avoid_: app role, application user
+**Runtime role**: The database role the API, the worker and the CLI connect as.
+It can read and write the application's data but cannot change the schema, which
+only the database's owner can. _Avoid_: app role, application user
 
 ### Worker
 
@@ -44,3 +44,11 @@ process exits. _Avoid_: worker once
 
 **Polling**: Running each job in its own loop, one pass at a time, waiting a
 fixed interval after each pass. _Avoid_: scheduling
+
+### CLI
+
+**Command**: One thing the CLI does, such as `users list`, after which it exits.
+_Avoid_: task, script
+
+**Command group**: The commands under one name, such as `users`; run without a
+command, it prints their help. _Avoid_: namespace

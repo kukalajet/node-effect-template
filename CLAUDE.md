@@ -7,7 +7,8 @@ run logic, and use a small function with early returns for conditions checked in
 priority order. `eslint/no-nested-ternary` fails lint.
 
 Put code where `ARCHITECTURE.md` says it belongs, and keep its dependency
-direction: routes and jobs use application ports, never database adapters.
+direction: routes, jobs and CLI commands use application ports, never database
+adapters.
 
 Lint (`.oxlintrc.json`) also requires:
 
@@ -24,10 +25,12 @@ Lint (`.oxlintrc.json`) also requires:
 - No `console`, `process.env` or `Effect.run*` in `apps/` or `packages/` outside
   tests: log with Effect, read `AppConfig`, and run effects only with
   `NodeRuntime.runMain` in an entry point, which provides `LoggingLive` from
-  `@node-effect/config` (JSON lines at `LOG_LEVEL`).
+  `@node-effect/config` (JSON lines at `LOG_LEVEL`), or, in the CLI,
+  `StderrLoggingLive`, which writes them to standard error.
 - No `@node-effect/database` or `effect/sql` imports in any folder under
   `apps/*/src/`, tests included. Provide adapters in the composition roots
-  directly in `src/` (`request-services-live.ts`, `worker-runtime.ts`).
+  directly in `src/` (`request-services-live.ts`, `worker-runtime.ts`,
+  `command-services-live.ts`).
 - No non-null assertions (`x!`), no `{…} as T` (annotate the variable or use
   `satisfies`), and no shadowed names.
 - Type-aware rules: no `any` flowing into typed code outside tests (parse what
