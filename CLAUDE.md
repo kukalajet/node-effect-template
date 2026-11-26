@@ -22,10 +22,11 @@ Lint (`.oxlintrc.json`) also requires:
   then `./`.
 - No module mocking: replace a service with `Layer.succeed` or `Layer.mock`.
 - No `console`, `process.env` or `Effect.run*` in `apps/` or `packages/` outside
-  tests: log with Effect, read `AppConfig`, and run effects only with
-  `NodeRuntime.runMain` in an entry point, which provides `LoggingLive` from
-  `@node-effect/config` (JSON lines at `LOG_LEVEL`). The web app's browser entry
-  runs with `BrowserRuntime.runMain` instead.
+  tests: log with Effect, read `AppConfig` on the server, and run effects only
+  with `NodeRuntime.runMain` in a server entry point, which provides
+  `LoggingLive` from `@node-effect/config` (JSON lines at `LOG_LEVEL`). The web
+  app's browser entry runs with `BrowserRuntime.runMain` instead, keeps Effect's
+  default logger, and has neither `process.env` nor `AppConfig`.
 - No `@node-effect/database` or `effect/sql` imports in any folder under
   `apps/*/src/`, tests included. Provide adapters in the composition roots
   directly in `src/` (`request-services-live.ts`, `worker-runtime.ts`).

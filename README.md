@@ -412,14 +412,14 @@ Effect UI is in public preview and not on npm; see
   for `yield*`, and an Effect returned to a plain Vitest `it`, which passes
   without running it. Errors and warnings fail it; suggestions are not shown.
   The `@effect/language-service` plugin in `tsconfig.json` configures them, with
-  `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, Node platform and Vitest
-  modules the template is built on as unstable. `allowedExperimentalApis`
-  exempts `@effect/ui`, which marks every API experimental; any other
-  experimental API still fails the check. Fix the code where you can; two
-  `Effect.provide` calls in a row, for example, become one, with the layers
-  merged or provided to each other. To accept a finding on one line, put
-  `// @effect-diagnostics-next-line <rule>:off` on the line above, with a
-  comment that says why; an unused directive fails the check.
+  `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, reactivity, testing,
+  Node and browser platform, and Vitest modules the template is built on as
+  unstable. `allowedExperimentalApis` exempts `@effect/ui`, which marks every
+  API experimental; any other experimental API still fails the check. Fix the
+  code where you can; two `Effect.provide` calls in a row, for example, become
+  one, with the layers merged or provided to each other. To accept a finding on
+  one line, put `// @effect-diagnostics-next-line <rule>:off` on the line above,
+  with a comment that says why; an unused directive fails the check.
   `scripts/typecheck.test.ts` type-checks a fixture with each of the three
   mistakes above and fails unless each is an error, so a renamed plugin entry or
   an option that turns them off cannot pass silently. Editors show the same
@@ -889,11 +889,23 @@ a newer Effect UI. Each update adds about 1.4 MB to the repository's history.
      https://pkg.pr.new/Effect-TS/ui/@effect/ui@<full-sha>
    ```
 
-3. Extract the old and the new tarball and diff the whole package: `dist/` is
-   the JavaScript the web app runs, and `src/` its TypeScript source, to which
-   the build adds JSDoc, so neither matches the commit's files exactly. Check
-   that `package.json` adds no install scripts and that its `effect` peer range
-   still allows the catalog's version.
+3. Extract the old and the new tarball into separate folders outside the
+   repository, and diff the whole package. Both unpack to `package/`, and files
+   left in the working tree fail `pnpm check`.
+
+   ```sh
+   old=$(mktemp -d) new=$(mktemp -d)
+   tar -xzf apps/web/vendor/effect-ui-<old-short-sha>.tgz -C "$old"
+   tar -xzf apps/web/vendor/effect-ui-<short-sha>.tgz -C "$new"
+   git diff --no-index --stat "$old/package" "$new/package"
+   git diff --no-index "$old/package" "$new/package"
+   ```
+
+   `dist/` is the JavaScript the web app runs, and `src/` its TypeScript source,
+   to which the build adds JSDoc, so neither matches the commit's files exactly.
+   Check that `package.json` adds no install scripts and that its `effect` peer
+   range still allows the catalog's version.
+
 4. Point `@effect/ui` in `apps/web/package.json` at the new file, delete the old
    one with `git rm`, then run `pnpm install` and `pnpm check`.
 
