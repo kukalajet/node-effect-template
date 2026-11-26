@@ -25,6 +25,9 @@ RUN test "$(node --version)" = "v$(node -p 'require("./package.json").devEngines
 # devDependency (devEngines.runtime), so this install also downloads and
 # verifies that same Node version, which pnpm's scripts then run on.
 FROM workspace AS check
+# The web app installs @effect/ui from a tarball in the repository (README.md,
+# "Prerelease notes"). It is a devDependency, so only this stage needs it.
+COPY apps/web/vendor ./apps/web/vendor
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
     pnpm install --frozen-lockfile --store-dir /pnpm/store
 # deploy/ holds no code; leaving it out keeps a deployment-only change from
@@ -64,7 +67,8 @@ WORKDIR /app
 # Depending on the check stage keeps failing code out of the image.
 COPY --from=check /checks-passed /checks-passed
 COPY --from=deps /app ./
-COPY apps ./apps
+# The image runs nothing from the vendored @effect/ui tarball.
+COPY --exclude=web/vendor apps ./apps
 COPY packages ./packages
 COPY drizzle ./drizzle
 COPY scripts/smoke-api.ts ./scripts/smoke-api.ts

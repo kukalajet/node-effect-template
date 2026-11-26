@@ -269,8 +269,8 @@ importers:
         specifier: 'catalog:'
         version: 4.1.5(effect@4.1.5)
       '@effect/ui':
-        specifier: https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07
-        version: https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07(effect@4.1.5)
+        specifier: file:./vendor/effect-ui-efdee07.tgz
+        version: file:apps/web/vendor/effect-ui-efdee07.tgz(effect@4.1.5)
       '@node-effect/api-contract':
         specifier: workspace:*
         version: link:../../packages/api-contract
@@ -435,8 +435,8 @@ packages:
     resolution: {integrity: sha512-T5dDXNbR3yMkqxopv4KIaEhkv1EQ5jlwJdpzjNBEfCKxH1WanVoBhwU2M0fq+u17ATYWdzMt3vXV896Rz348jA==}
     hasBin: true
 
-  '@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07':
-    resolution: {integrity: sha512-eprvfkEi+LtTengutpFh4A5GdV67I5JmNcmeJ+emSXrpnWeGghoCaSVh2AKvT0V7IRZfByxU6mMIrvFWPczFeA==, tarball: https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07}
+  '@effect/ui@file:apps/web/vendor/effect-ui-efdee07.tgz':
+    resolution: {integrity: sha512-eprvfkEi+LtTengutpFh4A5GdV67I5JmNcmeJ+emSXrpnWeGghoCaSVh2AKvT0V7IRZfByxU6mMIrvFWPczFeA==, tarball: file:apps/web/vendor/effect-ui-efdee07.tgz}
     version: 0.0.0
     peerDependencies:
       effect: ^4.1.4
@@ -1916,7 +1916,7 @@ snapshots:
       '@effect/tsgo-win32-arm64': 0.56.1
       '@effect/tsgo-win32-x64': 0.56.1
 
-  '@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07(effect@4.1.5)':
+  '@effect/ui@file:apps/web/vendor/effect-ui-efdee07.tgz(effect@4.1.5)':
     dependencies:
       effect: 4.1.5
 

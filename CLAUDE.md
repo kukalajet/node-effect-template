@@ -43,7 +43,9 @@ allowed.
 `pnpm check` must pass before a change is done; `pnpm fix` formats and
 lint-fixes. `pnpm check` includes `pnpm db:verify`, so a schema change needs its
 generated migration (`pnpm db:generate`). Never edit the migrations in
-`drizzle/` or the vendored `tools/oxlint/anti-slop/`.
+`drizzle/` or the vendored `tools/oxlint/anti-slop/`, and replace the vendored
+`@effect/ui` build in `apps/web/vendor/` only as README.md's "Updating Effect
+UI" says.
 
 `pnpm check` type-checks with `@effect/tsgo`'s build of `tsc`, so Effect's
 diagnostics fail it like type errors: an Effect that is never run, `yield` where

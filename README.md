@@ -706,14 +706,15 @@ test fails until you do.
 
 ## Exact dependency policy
 
-Every version is exact; there are no ranges. Renovate keeps them current, so
-this README names no exact versions; read them where they are pinned:
+Every version is exact; there are no ranges. Renovate keeps them current, except
+`@effect/ui` (see [Prerelease notes](#prerelease-notes)), so this README names
+no exact versions; read them where they are pinned:
 
 | File                                                     | Pins                                                                                                                        |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `package.json`                                           | Node (`devEngines.runtime`), pnpm (`packageManager`, `devEngines.packageManager`) and the root `devDependencies`            |
 | `pnpm-workspace.yaml`                                    | The `catalog` of dependencies the workspace packages share, such as Effect and Drizzle, and the Vite and Vitest `overrides` |
-| `apps/web/package.json`                                  | `@effect/ui` by the commit of its snapshot build (see [Prerelease notes](#prerelease-notes))                                |
+| `apps/web/package.json`                                  | `@effect/ui` by the commit of the snapshot build in `apps/web/vendor` (see [Prerelease notes](#prerelease-notes))           |
 | `Dockerfile`                                             | The Node base image by digest, the pnpm it installs, and the Dockerfile syntax image                                        |
 | `docker-compose.yml`, `deploy/vps/compose.yml`, `ci.yml` | PostgreSQL by digest, and in `deploy/vps/compose.yml` `cloudflared`                                                         |
 | `scripts/check-static.sh`, `scripts/scan-image.sh`       | The shellcheck, actionlint, zizmor and Grype images by digest                                                               |
@@ -735,8 +736,8 @@ checked such a version and trust it, list it in `trustPolicyExclude`.
 ### Dependency updates
 
 [Renovate](https://docs.renovatebot.com/), configured in
-[`renovate.json5`](./renovate.json5), opens a pull request for every pin above,
-and for the lockfile once a week. Install the
+[`renovate.json5`](./renovate.json5), opens a pull request for every pin above
+except `@effect/ui`, and for the lockfile once a week. Install the
 [Renovate GitHub App](https://github.com/apps/renovate) on the repository; this
 is a manual step for its owner, and it needs Issues turned on for the Dependency
 Dashboard. Because the configuration already exists, Renovate skips its
@@ -776,6 +777,10 @@ onboarding pull request.
     approve it only once you have confirmed the maintainers moved the tag.
   - **The weekly lockfile pull request.** pnpm re-resolves indirect dependencies
     for it with its own minimum release age of one day (see above).
+  - **`@effect/ui`.** Renovate skips the vendored tarball, and pnpm's minimum
+    release age and `trustPolicy` need registry metadata, which a tarball does
+    not have. Update it by hand, to a `main` commit at least three days old (see
+    [Updating Effect UI](#updating-effect-ui)).
   - **Security fixes.** With Dependabot alerts on, Renovate opens a pull request
     for a vulnerable dependency's fix at once, without the wait.
 - **One pull request per group,** and nothing merges by itself; every pull
@@ -822,21 +827,23 @@ Renovate does not manage the image built from this repository
 (`node-effect-template:local` and the commit-tagged release images), the
 `ubuntu-latest` runners, the Grype vulnerability database (each scan downloads
 the current one), the Debian packages inside the base images, which arrive with
-a new base image digest, or `@effect/ui`, which comes from a URL (see
+a new base image digest, or `@effect/ui`, a tarball in the repository (see
 [Prerelease notes](#prerelease-notes)).
 
 ## Prerelease notes
 
-- **Effect UI** is in public preview and not on npm. Each commit to its `main`
-  is published as a snapshot build on [pkg.pr.new](https://pkg.pr.new/), and
-  `apps/web/package.json` installs `@effect/ui` from the build of one commit, by
-  its short SHA. The lockfile holds the tarball's integrity hash, so a rebuilt
-  tarball fails the install instead of slipping in, and `pnpm install` needs to
-  reach `pkg.pr.new`. Its APIs can change from one commit to the next. To update
-  it, replace the SHA with a newer commit's from
-  [its builds](https://pkg.pr.new/~/Effect-TS/ui), run `pnpm install`, then
-  `pnpm check`. It requires `effect` at the version its manifest names, which
-  the Effect group in the catalog has to meet.
+- **Effect UI** is in public preview and not on npm.
+  [pkg.pr.new](https://pkg.pr.new/) hosts builds of the commits on Effect UI's
+  `main` and its pull requests. It documents no retention, and its code can
+  delete a build six months after upload, or once nobody has downloaded it for a
+  month. So the repository keeps the build of one `main` commit as
+  `apps/web/vendor/effect-ui-<short-sha>.tgz`, which `apps/web/package.json`
+  installs with a `file:` specifier: installs, CI and image builds never reach
+  pkg.pr.new. The image's `check` stage copies the tarball before its install,
+  and the runtime image leaves it out. Its APIs can change from one commit to
+  the next. It requires `effect` at the version its manifest names, which the
+  Effect group in the catalog has to meet. See
+  [Updating Effect UI](#updating-effect-ui).
 - **Drizzle 1.0** is a release candidate. From rc.5 on it works with stable
   Effect 4 (`Schema.TaggedError`, `effect/sql`), so no patch is needed.
   `migrate.ts` uses its Effect migrator, `drizzle-orm/effect-postgres/migrator`.
@@ -855,6 +862,44 @@ a new base image digest, or `@effect/ui`, which comes from a URL (see
   `vite-plus` pins.
 - **`@effect/platform-node`** declares `redis` as a required peer, although only
   its Redis module uses it; `packageExtensions` marks it optional.
+
+### Updating Effect UI
+
+Renovate leaves `@effect/ui` alone, so update it by hand when the web app needs
+a newer Effect UI. Each update adds about 1.4 MB to the repository's history.
+
+1. Pick a commit on Effect UI's `main` that is at least three days old and has a
+   build. The [builds page](https://pkg.pr.new/~/Effect-TS/ui) lists pull
+   request builds too, so check the commit in a clone of
+   [Effect-TS/ui](https://github.com/Effect-TS/ui):
+   `git merge-base --is-ancestor <full-sha> origin/main` succeeds only for a
+   commit on `main`, and `git log -1 --format=%cI <full-sha>` prints its date. A
+   commit pushed just before another may have no build, and running its workflow
+   again replaces the build, so
+   `curl -fsSI https://pkg.pr.new/Effect-TS/ui/@effect/ui@<full-sha>` has to
+   succeed and show a `last-modified` at least three days old too.
+2. Download the build by the full SHA, which pkg.pr.new never reads as a branch
+   name, into a file named by the short SHA:
+
+   ```sh
+   curl -fsSL -o apps/web/vendor/effect-ui-<short-sha>.tgz \
+     https://pkg.pr.new/Effect-TS/ui/@effect/ui@<full-sha>
+   ```
+
+3. Extract the old and the new tarball and diff the whole package: `dist/` is
+   the JavaScript the web app runs, and `src/` its TypeScript source, to which
+   the build adds JSDoc, so neither matches the commit's files exactly. Check
+   that `package.json` adds no install scripts and that its `effect` peer range
+   still allows the catalog's version.
+4. Point `@effect/ui` in `apps/web/package.json` at the new file, delete the old
+   one with `git rm`, then run `pnpm install` and `pnpm check`.
+
+The lockfile holds the tarball's integrity hash. A frozen install, as in CI and
+the image build, fails when the file changes without the lockfile, but a plain
+`pnpm install` records the new hash, so reject a pull request that changes the
+hash without renaming the file. While pkg.pr.new still has the build, a reviewer
+can confirm the file is that commit's build:
+`curl -fsSL <the URL> | cmp - <the file>` prints nothing.
 
 ## Caveats
 

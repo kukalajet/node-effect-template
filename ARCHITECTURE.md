@@ -106,6 +106,7 @@ apps/
     index.html                    # the page Vite serves and builds
     vite.config.ts                # dev server and preview: /api forwarded to the API
     tsconfig.json                 # the DOM's types for src, none of Node's
+    vendor/                       # the @effect/ui build that package.json installs
     src/
       main.ts                     # browser entry: mounts the page, provides the HTTP client
       api-client.ts               # ApiClient: the client the contract derives

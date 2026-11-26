@@ -6,3 +6,7 @@ dist/
 .vite-hooks/_/
 .claude/settings.local.json
 .claude/worktrees/
+
+# The vendored @effect/ui build (README.md, "Updating Effect UI"), kept even
+# where a global gitignore leaves out *.tgz.
+!/apps/web/vendor/*.tgz
