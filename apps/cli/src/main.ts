@@ -7,7 +7,7 @@ import { StderrLoggingLive } from "@node-effect/config";
 
 import packageJson from "../package.json" with { type: "json" };
 
-import { reportCliFailure } from "./cli-errors.ts";
+import { cliTeardown, reportCliFailure } from "./cli-errors.ts";
 import { CommandServicesLive } from "./command-services-live.ts";
 import { cli, CliConfigLive } from "./commands.ts";
 
@@ -19,11 +19,12 @@ import { cli, CliConfigLive } from "./commands.ts";
 //
 // A command prints its result on standard output, where effect/cli prints help
 // and the version too. Error messages go to standard error, and so do
-// StderrLoggingLive's lines. reportCliFailure logs a failure once, as JSON.
-// runMain's own reporting stays off: it would log the raw cause again, as
-// text, outside StderrLoggingLive. test/main.test.ts runs this file to check
-// all of this but what a command prints, which needs a database:
-// users/test/commands.test.ts checks that.
+// StderrLoggingLive's lines. reportCliFailure logs a failure once, as JSON,
+// and cliTeardown keeps a defect from exiting 0. runMain's own reporting stays
+// off: it would log the raw cause again, as text, outside StderrLoggingLive.
+// test/main.test.ts runs this file to check this, apart from what a command
+// prints and a defect, which users/test/commands.test.ts and
+// test/cli-errors.test.ts cover.
 const main = cli.pipe(
   Command.provide(CommandServicesLive),
   Command.run({ version: packageJson.version }),
@@ -32,4 +33,7 @@ const main = cli.pipe(
   Effect.provide(StderrLoggingLive),
 );
 
-NodeRuntime.runMain(main, { disableErrorReporting: true });
+NodeRuntime.runMain(main, {
+  disableErrorReporting: true,
+  teardown: cliTeardown,
+});

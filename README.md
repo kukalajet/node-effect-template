@@ -205,8 +205,9 @@ carries its safe diagnostics, and nothing retries it.
 The API, the worker and `migrate` write one JSON object per line to standard
 output, through `LoggingLive` in `packages/config/src/logging.ts`. The CLI
 writes the same lines to standard error, through `StderrLoggingLive`, so they
-never mix with what a command prints. This is the access line of an API request,
-spread over several lines here:
+never mix with what a command prints, unless `docker compose run` gives the CLI
+a terminal (see [Local container stack](#local-container-stack)). This is the
+access line of an API request, spread over several lines here:
 
 ```json
 {

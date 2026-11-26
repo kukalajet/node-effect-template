@@ -393,7 +393,9 @@ is never replaced, so the reporter logs it. Each uses `reportFailure(message)`
 from `application`, which the worker's and the CLI's reporters annotate with
 their service. Keep each reporter paired with `runMain`'s
 `disableErrorReporting: true`, which prevents the runtime from also logging the
-raw cause, as text outside `LoggingLive`. `apps/api/src/test/main.test.ts` runs
+raw cause, as text outside `LoggingLive` (the CLI's `StderrLoggingLive`). The
+CLI also gives `runMain` its `cliTeardown`, which exits 1 rather than 0 when a
+defect in cleanup stops a group's help. `apps/api/src/test/main.test.ts` runs
 `main.ts` as a process to check that and that Effect's built-in HTTP logger
 stays off, since no module test can see either setting. The worker's
 `src/test/main.test.ts` and `src/test/once.test.ts`, the CLI's
@@ -406,8 +408,8 @@ exit 130 and no log line. The CLI's also check that it logs on standard error,
 which leaves standard output to what a command prints, that `--help`,
 `--version` and invalid input need no configuration, and that a group run
 without a command needs configuration but no database. The reporters' own tests
-run them under a test logger. `LoggingLive` reports its own failure, an invalid
-`LOG_LEVEL`, because nothing outside it can.
+run them under a test logger. `LoggingLive` and `StderrLoggingLive` report their
+own failure, an invalid `LOG_LEVEL`, because nothing outside them can.
 
 `migrate.ts` uses `reportFailure` too, with a redaction of its own:
 `reportFailure(message, { isSensitive, report })` also reduces what

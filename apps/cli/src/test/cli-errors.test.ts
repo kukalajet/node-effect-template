@@ -1,10 +1,10 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Cause, Effect, Exit, Layer, Logger, Runtime, Schema } from "effect";
+import { Cause, Effect, Exit, Layer, Logger, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { persistenceFailureFields } from "@node-effect/application";
 
-import { reportCliFailure, userError } from "../cli-errors.ts";
+import { cliTeardown, reportCliFailure, userError } from "../cli-errors.ts";
 
 import { runCommand } from "./command-runner.fixtures.ts";
 
@@ -34,11 +34,11 @@ const probeCommand = (handler: Effect.Effect<void, unknown>) =>
     () => handler,
   );
 
-// The code runMain exits with when its program ends as `exit` does.
+// The code main.ts exits with when its program ends as `exit` does.
 const exitCodeOf = (exit: Exit.Exit<unknown, unknown>) => {
   let code: number | undefined;
 
-  Runtime.defaultTeardown(exit, (exitCode) => {
+  cliTeardown(exit, (exitCode) => {
     code = exitCode;
   });
 
@@ -155,8 +155,9 @@ describe("CLI failure reporting", () => {
   it.effect("logs a cleanup defect, not the request for help it stopped", () =>
     Effect.gen(function* () {
       // The services' cleanup dies, which turns the group's request for help
-      // into a defect too: effect/cli prints no help, and both defects reach
-      // the reporter.
+      // into a defect too: effect/cli prints no help, both defects reach the
+      // reporter, and the run fails, though the request for help, whose code
+      // is 0, comes first in the cause.
       const group = Command.make("group").pipe(
         Command.withSubcommands([probeCommand(Effect.void)]),
         Command.provide(
@@ -166,9 +167,12 @@ describe("CLI failure reporting", () => {
         ),
       );
 
-      const { exit } = yield* runCommand(group, []);
+      const { exit, output } = yield* runCommand(group, []);
 
       assert(Exit.isFailure(exit));
+      assert(exit.cause.reasons.every(Cause.isDieReason));
+      assert.deepStrictEqual(output, []);
+      assert.strictEqual(exitCodeOf(exit), 1);
       const lines = yield* reportedLines(exit.cause);
       assert.lengthOf(lines, 1);
       assert.match(lines.join(""), /CLEANUP_FAILURE/);

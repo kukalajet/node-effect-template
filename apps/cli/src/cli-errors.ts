@@ -1,4 +1,4 @@
-import { Cause, Effect, Runtime } from "effect";
+import { Cause, Effect, Exit, Runtime } from "effect";
 import { CliError } from "effect/cli";
 
 import { reportFailure } from "@node-effect/application";
@@ -43,4 +43,14 @@ const reportCliFailure = (cause: Cause.Cause<unknown>) => {
   );
 };
 
-export { reportCliFailure, userError };
+// runMain's exit code, but never 0 for a defect. A defect in cleanup turns a
+// group's request for help into a defect too, and that request, first in the
+// cause, would give runMain's default its code: 0.
+const cliTeardown: Runtime.Teardown = (exit, onExit) =>
+  Runtime.defaultTeardown(exit, (code) => {
+    const isDefect = Exit.isFailure(exit) && Cause.hasDies(exit.cause);
+
+    onExit(code === 0 && isDefect ? 1 : code);
+  });
+
+export { cliTeardown, reportCliFailure, userError };
