@@ -37,11 +37,11 @@
           "floatingEffect": "error",
           "missingStarInYieldEffectGen": "error",
           "floatingEffectInVitest": "error",
-          // Effect 4 marks effect/http, effect/http-api, effect/sql,
-          // effect/reactivity, effect/testing, @effect/sql-pg,
+          // Effect 4 marks effect/cli, effect/http, effect/http-api,
+          // effect/reactivity, effect/sql, effect/testing, @effect/sql-pg,
           // @effect/platform-node, @effect/platform-browser and @effect/vitest
-          // unstable. The template is built on them, so this rule would flag
-          // hundreds of places, every `it` in the tests among them.
+          // unstable, among others. The template is built on them, so this rule
+          // would flag hundreds of places, every `it` in the tests among them.
           "unstableApiUsage": "off"
         },
         // @effect/ui marks every API experimental while it is in public

@@ -53,8 +53,8 @@ jobs:
         run: bash scripts/check-static.sh
 
   # The production image (whose build runs `pnpm check` again) against a real
-  # PostgreSQL: migrations, API, health checks, and worker modes. Then a
-  # vulnerability scan of that image.
+  # PostgreSQL: migrations, API, health checks, worker modes and the CLI. Then
+  # a vulnerability scan of that image.
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -213,32 +213,32 @@
           {
             "object": "Logger",
             "property": "consoleJson",
-            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
+            "message": "Node entry points provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consoleLogFmt",
-            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
+            "message": "Node entry points provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consolePretty",
-            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
+            "message": "Node entry points provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consolePrettyBrowser",
-            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
+            "message": "Node entry points provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consolePrettyTty",
-            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
+            "message": "Node entry points provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consoleStructured",
-            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
+            "message": "Node entry points provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           }
         ]
       }
@@ -256,7 +256,7 @@
               },
               {
                 "regex": "^(@node-effect/database|effect/sql)(/.*)?$",
-                "message": "Feature code uses application ports. Provide their adapters in the app's composition root (request-services-live.ts, worker-runtime.ts)."
+                "message": "Feature code uses application ports. Provide their adapters in the app's composition root (request-services-live.ts, worker-runtime.ts, command-services-live.ts)."
               }
             ]
           }

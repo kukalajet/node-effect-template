@@ -1,5 +1,6 @@
 # Local stack. `docker compose up` starts PostgreSQL only; the `app` profile
-# adds migrate, api and worker, and the `tools` profile adds worker-once.
+# adds migrate, api and worker, and the `tools` profile adds worker-once and
+# cli.
 x-app: &app
   image: ${APP_IMAGE:-node-effect-template:local}
   build:
@@ -113,6 +114,18 @@ services:
   worker-once:
     <<: *app
     command: ["node", "apps/worker/src/once.ts"]
+    restart: "no"
+    profiles: ["tools"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # One CLI command, then exit: `docker compose run --rm cli users list`. The
+  # entrypoint makes what follows the service name the command's arguments,
+  # and keeps node as PID 1.
+  cli:
+    <<: *app
+    entrypoint: ["node", "apps/cli/src/main.ts"]
     restart: "no"
     profiles: ["tools"]
     depends_on:

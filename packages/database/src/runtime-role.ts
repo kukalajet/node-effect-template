@@ -57,9 +57,10 @@ const scramSecret = (password: string) => {
 // running `migrate` rotates it. The attributes are set and the role's stored
 // settings cleared on every run too. The role can change its settings itself
 // (`alter role ... set`), and one such as `default_transaction_read_only` or
-// an unloadable `local_preload_libraries` would otherwise break the API and
-// the worker across every later release. The default privileges cover tables
-// and sequences the owner creates later, such as with `drizzle-kit migrate`.
+// an unloadable `local_preload_libraries` would otherwise break the API, the
+// worker and the CLI across every later release. The default privileges cover
+// tables and sequences the owner creates later, such as with
+// `drizzle-kit migrate`.
 const provisionStatement = `
   do $$
   declare
@@ -118,7 +119,7 @@ type ExistingRole = {
 // Large objects are the exception and are left out: any role may create one,
 // the API through an injected `lo_from_bytea` too, and one grants access to
 // itself only. A temporary table counts as well, while the session that
-// created it lasts; the API and the worker create none.
+// created it lasts; the API, the worker and the CLI create none.
 const findExistingRole = (sql: SqlClient.SqlClient, name: string) =>
   sql<ExistingRole>`
     select
@@ -140,7 +141,7 @@ const findExistingRole = (sql: SqlClient.SqlClient, name: string) =>
 
 const refusalReason = (name: string, existing: ExistingRole) => {
   if (existing.is_owner) {
-    return `APP_DATABASE_USER ${name} is the role migrate connects as; the API and the worker need a role of their own`;
+    return `APP_DATABASE_USER ${name} is the role migrate connects as; the API, the worker and the CLI need a role of their own`;
   }
 
   if (existing.is_superuser) {

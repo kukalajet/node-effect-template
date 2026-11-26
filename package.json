@@ -11,6 +11,7 @@
     "dev:worker": "node --watch --env-file=.env apps/worker/src/main.ts",
     "start:worker": "node --env-file=.env apps/worker/src/main.ts",
     "sample:worker": "node --env-file=.env apps/worker/src/once.ts",
+    "cli": "node --env-file=.env apps/cli/src/main.ts",
     "dev:web": "vp dev apps/web",
     "build:web": "vp build apps/web",
     "preview:web": "vp preview apps/web",

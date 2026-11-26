@@ -57,7 +57,7 @@ describe("user schemas", () => {
     assert.throws(() => decodeUserId("not-a-uuid"));
   });
 
-  it("decode a create-user command from untrimmed input", () => {
+  it("decode the input to create a user, trimming it", () => {
     assert.deepStrictEqual(
       decodeCreateUser({
         email: " ada@example.com ",
