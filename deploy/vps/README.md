@@ -790,8 +790,10 @@ full restore does, rather than copying them into the container.
 
 `bin/compose run --rm cli` runs one CLI command in a container of its own, as
 the runtime role, with the current release's image; `--help` lists the commands.
-Add `-T` before `cli` to read its output in a script: with a terminal, Docker
-sends standard error to standard output too.
+Run from a terminal, the container gets a terminal of its own, which carries the
+CLI's standard error on standard output too: add `-T` before `cli` to keep the
+two apart, for example to hide log lines with `2>/dev/null`. A script that pipes
+or redirects the output gets no terminal and needs no `-T`.
 
 - **Find a request:** Cloudflare gives every request a ray ID, which the client
   receives in the `cf-ray` response header.

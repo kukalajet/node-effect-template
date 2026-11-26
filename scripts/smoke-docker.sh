@@ -106,7 +106,8 @@ if "${compose[@]}" logs --no-color api |
 fi
 "${compose[@]}" run --rm --no-deps worker-once
 # The CLI prints the user smoke-api.ts created, read as the runtime role. -T
-# keeps its standard error out of the standard output that grep reads.
+# rules out a terminal, which would carry its standard error into what grep
+# reads; a pipe gets none anyway.
 "${compose[@]}" run --rm --no-deps -T cli users list |
   grep -F '"email":"ada@example.com"' > /dev/null
 "${compose[@]}" run --rm --no-deps migrate

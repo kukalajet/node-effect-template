@@ -31,9 +31,9 @@ The rules behind the diagram are more important than the exact folders:
 - `database` is an outbound adapter. It depends on application contracts and
   domain types, and owns PostgreSQL, Drizzle, tables, row mappings, live
   repository implementations, and the migration entry point.
-- `config` owns validated environment configuration, and `LoggingLive`, the
-  logging every entry point provides, which `LOG_LEVEL` configures, with
-  `StderrLoggingLive`, the CLI's, which writes the same lines to standard error.
+- `config` owns validated environment configuration and the entry points'
+  logging, which `LOG_LEVEL` configures: `LoggingLive`, JSON lines on standard
+  output, and `StderrLoggingLive`, the CLI's, the same lines on standard error.
   It lives here because every executable, `migrate` included, already depends on
   `config`, which depends only on Effect, and a package of its own would add a
   manifest for one module. It contains no business or transport logic.
@@ -43,7 +43,8 @@ The rules behind the diagram are more important than the exact folders:
   `request-services-live.ts`, `apps/worker/src/worker-runtime.ts`, and
   `apps/cli/src/main.ts` with `command-services-live.ts`) may import every layer
   it needs, because its job is to select implementations, assemble the layer
-  graph, provide `LoggingLive`, and launch the runtime.
+  graph, provide `LoggingLive` (the CLI `StderrLoggingLive`), and launch the
+  runtime.
 
 pnpm enforces part of this. Each workspace package lists its own runtime
 dependencies in its `package.json` (`catalog:` versions and `workspace:*`
@@ -125,7 +126,7 @@ packages/
     src/error-diagnostics.ts      # safe diagnostics from database causes
     src/database-call.ts          # databaseCalls, repositoryCalls: bounded calls that fail as a persistence failure
     src/migrate.ts                # migration entry point
-    src/runtime-role.ts           # the API's and worker's role, which migrate provisions
+    src/runtime-role.ts           # the role the API, the worker and the CLI connect as, which migrate provisions
     src/users/schema.ts           # Drizzle table and row schemas
     src/users/user-repository-live.ts
     src/test/                     # fake PgClient, migrated-database fixtures
@@ -173,7 +174,7 @@ today; ownership, rather than line count, decides the location.
 | Adapter that a worker job needs                                            | `WorkerServicesLive` in `worker-runtime.ts`                                                              |
 | CLI command: its flags, arguments and handler                              | `apps/cli/src/<feature>/commands.ts`, its group added to `cli` in `apps/cli/src/commands.ts`             |
 | Adapter that a CLI command needs                                           | `CommandServicesLive` in `apps/cli/src/command-services-live.ts`                                         |
-| Business value, invariant, entity, command, or domain error                | `packages/domain/src/<feature>.ts`                                                                       |
+| Business value, invariant, entity, input schema, or domain error           | `packages/domain/src/<feature>.ts`                                                                       |
 | Use-case orchestration or outbound service contract                        | `packages/application/src/<feature>/`                                                                    |
 | Persistence failure class                                                  | beside its port, built with `persistenceFailureFields`                                                   |
 | PostgreSQL/Drizzle table, query, row mapping, or repository implementation | `packages/database/src/<feature>/`                                                                       |
@@ -192,8 +193,9 @@ directly; a forwarding `UserService` adds no boundary.
 
 ## Effect services and layers
 
-The code uses Effect 4's stable module paths: `effect/http`, `effect/http-api`,
-`effect/sql` and `effect/testing`, never `effect/unstable/*`.
+The code uses Effect 4's stable module paths: `effect/cli`, `effect/http`,
+`effect/http-api`, `effect/process`, `effect/sql` and `effect/testing`, never
+`effect/unstable/*`.
 
 Keep the contract, implementation, composition, and test replacement separate:
 
@@ -226,9 +228,11 @@ Keep the contract, implementation, composition, and test replacement separate:
    since no command reads `AppConfig`, and `main.ts` gives it to every command
    with `Command.provide`. A command builds it when it runs, after effect/cli
    has parsed its input, so `--help`, `--version` and invalid input need neither
-   configuration nor a database. Give an effect its layers in one
-   `Effect.provide`, merged or provided to each other: the type check fails on
-   two in a row (Effect's `multipleEffectProvide` rule).
+   configuration nor a database. A group run without a command builds it too,
+   before printing its help, so it needs configuration, though it opens no
+   connection. Give an effect its layers in one `Effect.provide`, merged or
+   provided to each other: the type check fails on two in a row (Effect's
+   `multipleEffectProvide` rule).
 
    Every entry point provides `LoggingLive`, or the CLI `StderrLoggingLive`,
    last, outside its failure reporter, so the report is a JSON line too. Never
@@ -237,8 +241,8 @@ Keep the contract, implementation, composition, and test replacement separate:
    entry point's for those handlers.
 
 5. In a consumer test, replace the contract directly with `Layer.succeed` or
-   `Layer.mock`. Route and job unit tests should not start PostgreSQL or import
-   a live database adapter. Test the adapter separately when database
+   `Layer.mock`. Route, job and command unit tests should not start PostgreSQL
+   or import a live database adapter. Test the adapter separately when database
    integration behavior is the subject of the test.
 
 Choose the layer combinator by the relationship being expressed:
@@ -380,27 +384,30 @@ defects. Unexpected errors keep their normal diagnostic details; this is not
 universal secret redaction. Interruption-only exits remain quiet. The API's
 `main.ts` reports a failure to start or serve the same way, and so does the
 CLI's `reportCliFailure` (`apps/cli/src/cli-errors.ts`), which leaves out what
-effect/cli has already shown: invalid input, with the command's help, and a
-domain error that a command replaced with `userError(message)`, whose message it
-prints on standard error. That message is all the user sees, and the domain
-error stays its cause; a persistence failure is never replaced, so the reporter
-logs it. Each uses `reportFailure(message)` from `application`, which the
-worker's and the CLI's reporters annotate with their service. Keep each reporter
-paired with `runMain`'s `disableErrorReporting: true`, which prevents the
-runtime from also logging the raw cause, as text outside `LoggingLive`.
-`apps/api/src/test/main.test.ts` runs `main.ts` as a process to check that and
-that Effect's built-in HTTP logger stays off, since no module test can see
-either setting. The worker's `src/test/main.test.ts` and
-`src/test/once.test.ts`, the CLI's `src/test/main.test.ts`, and the process
-tests in `packages/database/src/test/migrate.test.ts`, run the other entry
-points the same way, without PostgreSQL. They check that a failure, from
-configuration or from a database that refuses connections, is logged once, as
-JSON, with nothing else written, and that SIGTERM ends a polling pass or a
-command in flight with exit 130 and no log line. The CLI's also check that it
-logs on standard error, which leaves standard output to what a command prints,
-and that `--help`, `--version` and invalid input need no configuration. The
-reporters' own tests run them under a test logger. `LoggingLive` reports its own
-failure, an invalid `LOG_LEVEL`, because nothing outside it can.
+effect/cli handles itself: invalid input, for which it prints the command's help
+and what is wrong, a group run without a command, for which it prints the
+group's help, and a domain error that a command replaced with
+`userError(message)`, whose message it prints on standard error. That message is
+all the user sees, and the domain error stays its cause; a persistence failure
+is never replaced, so the reporter logs it. Each uses `reportFailure(message)`
+from `application`, which the worker's and the CLI's reporters annotate with
+their service. Keep each reporter paired with `runMain`'s
+`disableErrorReporting: true`, which prevents the runtime from also logging the
+raw cause, as text outside `LoggingLive`. `apps/api/src/test/main.test.ts` runs
+`main.ts` as a process to check that and that Effect's built-in HTTP logger
+stays off, since no module test can see either setting. The worker's
+`src/test/main.test.ts` and `src/test/once.test.ts`, the CLI's
+`src/test/main.test.ts`, and the process tests in
+`packages/database/src/test/migrate.test.ts`, run the other entry points the
+same way, without PostgreSQL. They check that a failure, from configuration or
+from a database that refuses connections, is logged once, as JSON, with nothing
+else written, and that SIGTERM ends a polling pass or a command in flight with
+exit 130 and no log line. The CLI's also check that it logs on standard error,
+which leaves standard output to what a command prints, that `--help`,
+`--version` and invalid input need no configuration, and that a group run
+without a command needs configuration but no database. The reporters' own tests
+run them under a test logger. `LoggingLive` reports its own failure, an invalid
+`LOG_LEVEL`, because nothing outside it can.
 
 `migrate.ts` uses `reportFailure` too, with a redaction of its own:
 `reportFailure(message, { isSensitive, report })` also reduces what
@@ -462,15 +469,15 @@ when you need it, in application contracts and PostgreSQL adapters rather than
 growing this polling example into a runtime.
 
 The CLI runs one command and exits with the same codes: 0 also after `--help`,
-`--version`, or a group run without a command, which prints its help, and 1 for
-invalid input or a domain error, once effect/cli has printed it. The command
-tree is `cli` in `apps/cli/src/commands.ts`, which every group joins;
-`CommandServicesLive` must provide every port its commands need, which the type
-check enforces as for the worker. A command's pool opens a connection for its
-first query and closes when the command ends, and nothing retries a failed
-command. A command that runs prints its result, and nothing else, on standard
-output, so that a script can read it; error messages and log lines go to
-standard error.
+`--version`, or a group run without a command, which prints its help when the
+configuration is valid, and 1 for invalid input or a domain error, once
+effect/cli has printed it. The command tree is `cli` in
+`apps/cli/src/commands.ts`, which every group joins; `CommandServicesLive` must
+provide every port its commands need, which the type check enforces as for the
+worker. A command's pool opens a connection for its first query and closes when
+the command ends, and nothing retries a failed command. A command that runs
+prints its result, and nothing else, on standard output, so that a script can
+read it; error messages and log lines go to standard error.
 
 No application performs schema migrations at startup. Locally, the Compose
 `migrate` service runs `packages/database/src/migrate.ts` and the API, the
@@ -560,7 +567,8 @@ Module mocking fails lint.
   them, for example that a secret never reaches a log line. A test of the lines
   production writes provides `LoggingLive` with a `TestConsole`, as
   `access-log.test.ts` does. Outside tests, lint rejects Effect's
-  `Logger.console*` loggers: entry points provide `LoggingLive`.
+  `Logger.console*` loggers: entry points provide `LoggingLive`, or the CLI
+  `StderrLoggingLive`.
 - **Tests of generic code** use probes of their own rather than the users
   example: a `ProbeFailure` built with `persistenceFailureFields`, which
   `application` exports for them, or the `probe_items` table that the runtime
@@ -597,6 +605,6 @@ root, intentionally needs them.
   them.
 - Prefer a feature-local helper over a generic `shared` or `utils` module. Move
   it only after its ownership is genuinely shared.
-- Avoid exposing `Database`, SQL, or Drizzle types to routes and jobs.
+- Avoid exposing `Database`, SQL, or Drizzle types to routes, jobs and commands.
 - Add folders and files as responsibilities appear; the layout is not a quota to
   fill.

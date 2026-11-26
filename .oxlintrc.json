@@ -213,32 +213,32 @@
           {
             "object": "Logger",
             "property": "consoleJson",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consoleLogFmt",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consolePretty",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consolePrettyBrowser",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consolePrettyTty",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consoleStructured",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Provide LoggingLive from @node-effect/config, or in the CLI StderrLoggingLive, which log JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
           }
         ]
       }

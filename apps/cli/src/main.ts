@@ -14,13 +14,16 @@ import { cli, CliConfigLive } from "./commands.ts";
 // A command builds CommandServicesLive when it runs, after effect/cli has
 // parsed its input, so --help, --version and invalid input need neither
 // configuration nor a database. A group run without a command, which prints
-// its help, builds them first, though it opens no connection.
+// its help, builds them first, so it needs configuration, though it opens no
+// connection.
 //
 // A command prints its result on standard output, where effect/cli prints help
 // and the version too. Error messages go to standard error, and so do
-// StderrLoggingLive's lines. reportCliFailure logs a failure once, as JSON. runMain's own reporting stays
-// off: it would log the raw cause again, as text, outside StderrLoggingLive.
-// test/main.test.ts checks all of this by running this file.
+// StderrLoggingLive's lines. reportCliFailure logs a failure once, as JSON.
+// runMain's own reporting stays off: it would log the raw cause again, as
+// text, outside StderrLoggingLive. test/main.test.ts runs this file to check
+// all of this but what a command prints, which needs a database:
+// users/test/commands.test.ts checks that.
 const main = cli.pipe(
   Command.provide(CommandServicesLive),
   Command.run({ version: packageJson.version }),

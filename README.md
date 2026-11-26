@@ -122,8 +122,8 @@ The API starts while the database is unavailable, because the connection pool
 opens connections on demand. Liveness stays 200 during an outage; readiness and
 user requests fail until PostgreSQL returns.
 
-Database work has time limits. On the API's and the worker's connections
-PostgreSQL cancels a statement after `DATABASE_STATEMENT_TIMEOUT_MS`
+Database work has time limits. On the connections of the API, the worker and the
+CLI, PostgreSQL cancels a statement after `DATABASE_STATEMENT_TIMEOUT_MS`
 (SQLSTATE 57014) and a wait for a lock after 8 seconds (55P03), and ends a
 session left idle inside a transaction for 30 seconds. A query waits at most 5
 seconds for a pooled connection. PostgreSQL enforces its own limits, so none of
@@ -187,24 +187,26 @@ docker compose run --rm cli users list --limit 10
 ```
 
 On standard output a command prints each user as one line of JSON, as the API
-sends it, and `--help` and `--version` print there too. Errors go to standard
-error: what is wrong with invalid input, such as an email without a domain,
-which also prints the command's help; the message for a domain error, such as
-`User not found`; and log lines. The CLI exits 0 when the command succeeds or
-prints its help or version, 1 when it fails, and 130 when SIGINT or SIGTERM
-stops it. Flags and arguments are checked with the domain's schemas before the
-command reads its configuration or connects, so `--help`, `--version` and
-invalid input need neither. A command that cannot reach the database fails as a
-worker pass does, with one `CLI failed` line that carries its safe diagnostics,
-and nothing retries it.
+sends it. `--help` and `--version` print there too, and so does the command's
+help after invalid input. Standard error gets what is wrong with the input, such
+as an email without a domain, the message for a domain error, such as
+`User not found`, and log lines, so check the exit code before reading standard
+output. The CLI exits 0 when the command succeeds or prints its help or version,
+1 when it fails, and 130 when SIGINT or SIGTERM stops it. Flags and arguments
+are checked before the command reads its configuration or connects, so `--help`,
+`--version` and invalid input need neither. A group run without a command, such
+as `pnpm cli users`, prints its help too, but it reads the configuration first,
+so it needs `DATABASE_URL`, though it opens no connection. A command that cannot
+reach the database fails as a worker pass does, with one `CLI failed` line that
+carries its safe diagnostics, and nothing retries it.
 
 ### Logs
 
 The API, the worker and `migrate` write one JSON object per line to standard
 output, through `LoggingLive` in `packages/config/src/logging.ts`. The CLI
-writes the same lines to standard error, through `StderrLoggingLive`, so its
-standard output holds only what a command prints. This is the access line of an
-API request, spread over several lines here:
+writes the same lines to standard error, through `StderrLoggingLive`, so they
+never mix with what a command prints. This is the access line of an API request,
+spread over several lines here:
 
 ```json
 {
@@ -265,7 +267,8 @@ another value is left out rather than logged.
 
 A failure that stops a process is one Error line, `API failed`, `Worker failed`,
 `CLI failed` or `Database migration failed`, with database failures reduced the
-same way.
+same way. Invalid input and a domain error stop the CLI with a message on
+standard error and no log line.
 
 **Following a request.** Each request runs in a span of its own, in a new trace
 unless the request names one, so its access line and every line its handlers log
@@ -387,10 +390,10 @@ anything leaves the process.
   for `yield*`, and an Effect returned to a plain Vitest `it`, which passes
   without running it. Errors and warnings fail it; suggestions are not shown.
   The `@effect/language-service` plugin in `tsconfig.json` configures them, with
-  `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, Node platform and Vitest
-  modules the template is built on as unstable. Fix the code where you can; two
-  `Effect.provide` calls in a row, for example, become one, with the layers
-  merged or provided to each other. To accept a finding on one line, put
+  `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, CLI, Node platform and
+  Vitest modules the template is built on as unstable. Fix the code where you
+  can; two `Effect.provide` calls in a row, for example, become one, with the
+  layers merged or provided to each other. To accept a finding on one line, put
   `// @effect-diagnostics-next-line <rule>:off` on the line above, with a
   comment that says why; an unused directive fails the check.
   `scripts/typecheck.test.ts` type-checks a fixture with each of the three
@@ -445,8 +448,8 @@ verification reads files only and needs no database or `DATABASE_URL`.
 `pnpm db:migrate`, the Compose `migrate` service and production releases all run
 `packages/database/src/migrate.ts`. It applies pending migrations in one
 transaction and records them in `drizzle.__drizzle_migrations`, the same journal
-Drizzle Kit uses, so either tool skips what the other applied. Neither
-application migrates at startup.
+Drizzle Kit uses, so either tool skips what the other applied. No application
+migrates at startup.
 
 ### Database roles
 
@@ -499,9 +502,12 @@ The worker logs its passes at Debug; set `LOG_LEVEL=Debug` in `.env`, or prefix
 the `up` command with it, to see them.
 
 The CLI belongs to the `tools` profile and runs in a container of its own for
-each command, after `migrate`: `docker compose run --rm cli users list`. Add
-`-T` when a script reads its output, because with a terminal Docker sends
-standard error to standard output too.
+each command, after `migrate`: `docker compose run --rm cli users list`. Run
+from a terminal, the container gets a terminal of its own, which carries the
+CLI's standard error on standard output too: `2>/dev/null` then hides none of
+its messages or log lines. Add `-T` to keep the two apart. A pipe or a redirect
+of standard output gets no terminal, so
+`docker compose run --rm cli users list | jq` needs no `-T`.
 
 The image build runs `pnpm check`. Compose waits for PostgreSQL, runs `migrate`,
 then starts the API and worker. `migrate` gets a database URL built from

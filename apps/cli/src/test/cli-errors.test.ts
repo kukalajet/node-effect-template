@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Cause, Effect, Exit, Logger, Runtime, Schema } from "effect";
-import { CliError, Command, Flag } from "effect/cli";
+import { Cause, Effect, Exit, Layer, Logger, Runtime, Schema } from "effect";
+import { Command, Flag } from "effect/cli";
 
 import { persistenceFailureFields } from "@node-effect/application";
 
@@ -146,26 +146,33 @@ describe("CLI failure reporting", () => {
 
       assert(Exit.isFailure(exit));
       assert.include(output.join("\n"), "probe");
-      // The group printed its help, as asked, so the CLI exits 0.
+      // effect/cli printed the group's help, as asked, so the run exits 0.
       assert.strictEqual(exitCodeOf(exit), 0);
       assert.deepStrictEqual(yield* reportedLines(exit.cause), []);
     }),
   );
 
-  it.effect("logs a cleanup defect, without what effect/cli has shown", () =>
+  it.effect("logs a cleanup defect, not the request for help it stopped", () =>
     Effect.gen(function* () {
-      const shown = new CliError.ShowHelp({ commandPath: ["x"], errors: [] });
-
-      const lines = yield* reportedLines(
-        Cause.fromReasons([
-          Cause.makeFailReason(shown),
-          Cause.makeDieReason(new Error("CLEANUP_FAILURE")),
-        ]),
+      // The services' cleanup dies, which turns the group's request for help
+      // into a defect too: effect/cli prints no help, and both defects reach
+      // the reporter.
+      const group = Command.make("group").pipe(
+        Command.withSubcommands([probeCommand(Effect.void)]),
+        Command.provide(
+          Layer.effectDiscard(
+            Effect.addFinalizer(() => Effect.die(new Error("CLEANUP_FAILURE"))),
+          ),
+        ),
       );
 
+      const { exit } = yield* runCommand(group, []);
+
+      assert(Exit.isFailure(exit));
+      const lines = yield* reportedLines(exit.cause);
       assert.lengthOf(lines, 1);
       assert.match(lines.join(""), /CLEANUP_FAILURE/);
-      assert.notMatch(lines.join(""), /ShowHelp/);
+      assert.notMatch(lines.join(""), /ShowHelp|Help requested/);
     }),
   );
 

@@ -65,6 +65,33 @@ describe("apps/cli/src/main.ts", () => {
     assert.notInclude(stderr, "CLI failed");
   });
 
+  it("prints a group's help without a database, and exits 0", () => {
+    // Port 1 refuses connections, so a service that connected while it was
+    // built would fail this.
+    const { status, stdout, stderr } = runCli(["users"], {
+      DATABASE_URL: unreachableDatabaseUrl,
+    });
+
+    assert.strictEqual(status, 0);
+    assert.strictEqual(stderr, "");
+    assert.include(stdout, "node-effect users <subcommand>");
+  });
+
+  it("needs configuration for a group's help, as it builds the services", () => {
+    const { status, stdout, stderr } = runCli(["users"], {});
+    const lines = loggedLines(stderr);
+
+    assert.strictEqual(status, 1);
+    assert.strictEqual(stdout, "");
+
+    assert.deepStrictEqual(
+      lines.map((line) => line.message),
+      ["CLI failed"],
+    );
+
+    assert.include(lines[0]?.cause, "DATABASE_URL");
+  });
+
   it("reports missing configuration once, as JSON on standard error", () => {
     const { status, stdout, stderr } = runCli(["users", "list"], {});
     const lines = loggedLines(stderr);
