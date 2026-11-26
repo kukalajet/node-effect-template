@@ -8,6 +8,7 @@ export {
   NotFoundResponse,
   PayloadTooLargeResponse,
   publicError,
+  PublicErrorEnvelope,
   UnsupportedMediaTypeResponse,
 } from "./src/api-schemas.ts";
 

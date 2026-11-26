@@ -1,5 +1,11 @@
-import { Command, Component, UiSchema, Validation } from "@effect/ui";
-import { Html } from "@effect/ui/html";
+import {
+  Command,
+  Component,
+  type Renderer,
+  UiSchema,
+  Validation,
+} from "@effect/ui";
+import { Html, HtmlCommand } from "@effect/ui/html";
 import { Effect, Layer, Option, Schema } from "effect";
 import { AsyncResult } from "effect/reactivity";
 
@@ -47,6 +53,10 @@ const emptyForm = NewUserForm.init({ displayName: "", email: "" });
 // A valid form's values as the API stores them: decoding trims them.
 const decodeNewUser = Schema.decodeOption(CreateUserSchema);
 
+// The form's inputs, which the end of a create focuses.
+const NameInput = Html.ref("UsersPage.name", "input");
+const EmailInput = Html.ref("UsersPage.email", "input");
+
 const UsersPageModel = Schema.Struct({
   form: NewUserForm.State,
   // A create is running: the form takes no other submit until it ends.
@@ -71,8 +81,19 @@ class CreateUserFailed extends Schema.TaggedError<CreateUserFailed>()(
   { reason: Schema.String },
 ) {}
 
-// Asks the API to create a user. Until it answers, the list shows the user at
-// its top, where the API's newest-first order puts a new one.
+// The list with `user` pending at its top, where the API's newest-first order
+// puts a new user. A pending row for the same email goes: its create succeeded,
+// but the list fetched after it has not arrived (see `createUser`).
+const withPendingUser =
+  (user: typeof CreateUserSchema.Type) => (rows: ReadonlyArray<UserRow>) => [
+    PendingUser.make({ user }),
+    ...rows.filter(
+      (row) => row._tag !== "PendingUser" || row.user.email !== user.email,
+    ),
+  ];
+
+// Asks the API to create a user, which the list shows as pending from the
+// submit.
 //
 // The body fails when the API refuses, rather than turning the refusal into a
 // message itself: a run that fails takes its patch off the list at once, while
@@ -81,9 +102,7 @@ class CreateUser extends Command.Service<CreateUser>()("users/CreateUser", {
   args: { user: CreateUserSchema },
   success: UserSchema,
   error: CreateUserFailed,
-  optimistic: ({ user }) => [
-    ListUsers.patch({}, (rows) => [PendingUser.make({ user }), ...rows]),
-  ],
+  optimistic: ({ user }) => [ListUsers.patch({}, withPendingUser(user))],
 }) {
   static readonly layer = this.toLayer(
     Effect.gen(function* () {
@@ -104,7 +123,9 @@ class CreateUser extends Command.Service<CreateUser>()("users/CreateUser", {
 
 // The success waits for the list to be fetched again, so the saved user
 // replaces the pending one in the render that empties the form. The budget only
-// bounds that wait: a refetch takes a fraction of a second.
+// bounds that wait: a refetch takes a fraction of a second. One that takes
+// longer gets the form back sooner, and its pending row stays until the list
+// arrives.
 const createUser = (user: typeof CreateUserSchema.Type) =>
   CreateUser.make({ user }).pipe(
     Command.match({
@@ -114,6 +135,13 @@ const createUser = (user: typeof CreateUserSchema.Type) =>
     }),
     Command.afterRefetch("5 seconds"),
   );
+
+// Disabling the form while a create runs takes focus from the field or button
+// the user was on, so its end gives focus back: to the empty Name field after a
+// success, and to the Email field after a failure, since a refusal is most
+// often for an email in use, and Enter there sends the form again.
+const focusInput = (input: Renderer.Ref<HTMLInputElement>) =>
+  HtmlCommand.focus(input, () => Component.noop);
 
 const UsersPageDef = Html.component({
   name: "UsersPage",
@@ -132,7 +160,7 @@ const submittedNewUser = UsersPageDef.update("SubmittedNewUser", ($) => {
   const form = NewUserForm.submit($.model.form);
   const user = Option.flatMap(NewUserForm.validate(form).value, decodeNewUser);
 
-  if (Option.isNone(user)) return $.evolve({ form });
+  if (Option.isNone(user)) return $.evolve({ form, failure: null });
 
   return $.evolve({ form, saving: true, failure: null }).run(
     createUser(user.value),
@@ -154,6 +182,7 @@ const TextField = <Msg>(
     readonly type: "email" | "text";
     readonly autocomplete: string;
     readonly field: Validation.Field<string>;
+    readonly ref: Renderer.Ref<HTMLInputElement>;
     readonly onInput: (value: string) => Msg;
   },
 ) => {
@@ -164,6 +193,7 @@ const TextField = <Msg>(
   return h.div.class("field").children(
     h.label.attr("for", inputId).children(options.label),
     h.input
+      .ref(options.ref)
       .id(inputId)
       .attrs({
         type: options.type,
@@ -193,6 +223,7 @@ const NewUserFormView = UsersPageDef.fragment((h, model: UsersPageModel) => {
           type: "text",
           autocomplete: "name",
           field: fields.displayName,
+          ref: NameInput,
           onInput: (value) => UsersPageMessage.UpdatedDisplayName({ value }),
         }),
         TextField(h, {
@@ -201,6 +232,7 @@ const NewUserFormView = UsersPageDef.fragment((h, model: UsersPageModel) => {
           type: "email",
           autocomplete: "email",
           field: fields.email,
+          ref: EmailInput,
           onInput: (value) => UsersPageMessage.UpdatedEmail({ value }),
         }),
         h.button
@@ -241,7 +273,7 @@ const UserItem = (h: Html.H<UsersPageMessage>, row: UserRow) => {
     case "PendingUser": {
       const { displayName, email } = row.user;
 
-      // One create runs at a time, so one pending row has this email.
+      // `withPendingUser` keeps one pending row per email.
       return h.li
         .key(`pending:${email}`)
         .class("user", "user-pending")
@@ -255,32 +287,45 @@ const UserItem = (h: Html.H<UsersPageMessage>, row: UserRow) => {
   }
 };
 
+const UserRows = (
+  h: Html.H<UsersPageMessage>,
+  rows: ReadonlyArray<UserRow>,
+  waiting: boolean,
+) => {
+  if (rows.length === 0) {
+    return h.p.class("status").children("No users yet. Add the first one.");
+  }
+
+  return h.ul
+    .class("users")
+    .attr("aria-busy", String(waiting))
+    .children(rows.map((row) => UserItem(h, row)));
+};
+
+const LoadFailure = (h: Html.H<UsersPageMessage>, text: string) =>
+  h.p.class("notice").attr("role", "alert").children(text);
+
 const UserList = (
   h: Html.H<UsersPageMessage>,
   users: AsyncResult.AsyncResult<ReadonlyArray<UserRow>, string>,
 ) =>
   AsyncResult.matchWithError(users, {
     onInitial: () => h.p.class("status").children("Loading users…"),
-    onError: (reason) =>
-      h.p
-        .class("notice")
-        .attr("role", "alert")
-        .children(`Could not load users. ${reason}.`),
-    onDefect: () =>
-      h.p
-        .class("notice")
-        .attr("role", "alert")
-        .children("Could not load users."),
-    onSuccess: ({ value: rows, waiting }) => {
-      if (rows.length === 0) {
-        return h.p.class("status").children("No users yet. Add the first one.");
-      }
+    // A list that loaded before stays, under why the last fetch failed.
+    onError: (reason, { previousSuccess, waiting }) => {
+      const notice = LoadFailure(h, `Could not load users. ${reason}.`);
 
-      return h.ul
-        .class("users")
-        .attr("aria-busy", String(waiting))
-        .children(rows.map((row) => UserItem(h, row)));
+      return Option.match(previousSuccess, {
+        onNone: () => notice,
+        onSome: ({ value: rows }) =>
+          h.div.class("user-list").children(notice, UserRows(h, rows, waiting)),
+      });
     },
+    // The query cache never stores a defect: a fetcher that dies fails the
+    // page, which then shows the mount's fallback (main.ts). This branch only
+    // completes the match.
+    onDefect: () => LoadFailure(h, "Could not load users."),
+    onSuccess: ({ value: rows, waiting }) => UserRows(h, rows, waiting),
   });
 
 const UsersPageNoDeps = UsersPageDef.make({
@@ -291,9 +336,10 @@ const UsersPageNoDeps = UsersPageDef.make({
     UpdatedEmail: ($, { value }) =>
       $.evolve({ form: NewUserForm.change("email", value) }),
     SubmittedNewUser: submittedNewUser,
-    SucceededCreateUser: ($) => $.evolve({ form: emptyForm, saving: false }),
+    SucceededCreateUser: ($) =>
+      $.evolve({ form: emptyForm, saving: false }).run(focusInput(NameInput)),
     FailedCreateUser: ($, { reason }) =>
-      $.evolve({ saving: false, failure: reason }),
+      $.evolve({ saving: false, failure: reason }).run(focusInput(EmailInput)),
   },
   view: (h, model) =>
     h.main
@@ -320,6 +366,8 @@ const UsersPage = UsersPageNoDeps.pipe(
 export {
   CreateUser,
   CreateUserFailed,
+  EmailInput,
+  NameInput,
   NewUserForm,
   UsersPage,
   UsersPageMessage,

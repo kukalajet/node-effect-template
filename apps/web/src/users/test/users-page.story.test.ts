@@ -1,3 +1,4 @@
+import { HtmlCommand } from "@effect/ui/html";
 import { Story } from "@effect/ui/testing";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
@@ -6,6 +7,8 @@ import { SavedUser } from "../list-users.ts";
 import {
   CreateUser,
   CreateUserFailed,
+  EmailInput,
+  NameInput,
   NewUserForm,
   UsersPageMessage,
   UsersPageNoDeps,
@@ -48,7 +51,16 @@ describe("UsersPage", () => {
 
       assert.isTrue(story.model.saving);
 
-      story.loaded("users", [SavedUser.make({ user: savedAda })]);
+      story
+        .loaded("users", [SavedUser.make({ user: savedAda })])
+        .expectExact(HtmlCommand.Focus);
+
+      // The empty form takes focus, ready for the next user.
+      assert.deepStrictEqual(story.pending[0]?.command.args, {
+        ref: NameInput,
+      });
+
+      story.resolve(HtmlCommand.Focus, { found: true });
 
       assert.deepStrictEqual(story.model, {
         form: NewUserForm.init({ displayName: "", email: "" }),
@@ -67,7 +79,17 @@ describe("UsersPage", () => {
         .given(typedAda, { users: [] })
         .send(UsersPageMessage.SubmittedNewUser())
         .fail(CreateUser, new CreateUserFailed({ reason }))
-        .loaded("users", []);
+        .expectExact(HtmlCommand.Focus);
+
+      // The Email field takes focus: a refusal is most often for an email in
+      // use.
+      assert.deepStrictEqual(story.pending[0]?.command.args, {
+        ref: EmailInput,
+      });
+
+      // The refusal did not wait for the list, which the failed create still
+      // fetches again.
+      story.resolve(HtmlCommand.Focus, { found: true }).loaded("users", []);
 
       assert.deepStrictEqual(story.model.form.values, typedAda.form.values);
       assert.isFalse(story.model.saving);
@@ -87,5 +109,27 @@ describe("UsersPage", () => {
 
       assert.deepStrictEqual(story.model, saving);
     }),
+  );
+
+  it.effect(
+    "drops the last failure when the form is sent again, even invalid",
+    () =>
+      Effect.gen(function* () {
+        const story = yield* Story.make(UsersPageNoDeps, {});
+
+        const refused = {
+          form: NewUserForm.init({ displayName: "Ada Lovelace", email: "" }),
+          saving: false,
+          failure: "A user with this email already exists",
+        };
+
+        story
+          .given(refused, { users: [] })
+          .send(UsersPageMessage.SubmittedNewUser())
+          .expectNone();
+
+        assert.isNull(story.model.failure);
+        assert.isFalse(story.model.saving);
+      }),
   );
 });

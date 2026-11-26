@@ -1,11 +1,17 @@
 import { Schema } from "effect";
 import { HttpApiSchema } from "effect/http-api";
 
-// Every public error has the same envelope. The code and message are literals,
-// so the OpenAPI document lists exactly what a client can receive. `schema`
-// goes in the endpoint's contract, and `body`, its only value, is what a
-// handler fails with, so the code and message are written once. `status` is
-// for a response that no contract declares.
+// The envelope every public error shares, whatever its code: what a client
+// reads an error's message from.
+const PublicErrorEnvelope = Schema.Struct({
+  error: Schema.Struct({ code: Schema.String, message: Schema.String }),
+});
+
+// One public error, in that envelope. The code and message are literals, so the
+// OpenAPI document lists exactly what a client can receive. `schema` goes in
+// the endpoint's contract, and `body`, its only value, is what a handler fails
+// with, so the code and message are written once. `status` is for a response
+// that no contract declares.
 const publicError = <const Code extends string, const Message extends string>(
   status: number,
   code: Code,
@@ -67,5 +73,6 @@ export {
   NotFoundResponse,
   PayloadTooLargeResponse,
   publicError,
+  PublicErrorEnvelope,
   UnsupportedMediaTypeResponse,
 };

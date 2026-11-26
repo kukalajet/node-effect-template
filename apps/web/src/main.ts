@@ -1,5 +1,5 @@
 import { BrowserRuntime } from "@effect/platform-browser";
-import { BrowserHost } from "@effect/ui/html";
+import { BrowserHost, type Html } from "@effect/ui/html";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/http";
 
@@ -17,12 +17,29 @@ const rootElement = Effect.suspend(() => {
   return Effect.succeed(root);
 });
 
-// The page is served from the same origin as the API, which it reaches under
-// /api: the dev server forwards those requests to the API.
+// The page calls the API under /api on its own origin: the dev server and
+// `vp preview` forward those requests to the API without the prefix, and
+// production has to route them the same way (README, Web app).
 const apiUrl = new URL("/api", window.location.origin);
 
+// The page shows every failure a call can have in its place, so only a defect
+// fails it as a whole. Its cause goes to the console; the reader gets this.
+const mountOptions: BrowserHost.MountOptions<Html.Elements> = {
+  fallback: (_failure, h) =>
+    h.main
+      .class("users-page")
+      .children(
+        h.p
+          .class("notice")
+          .attr("role", "alert")
+          .children("Something went wrong. Reload the page to try again."),
+      ),
+};
+
 const App = Layer.unwrap(
-  Effect.map(rootElement, (root) => BrowserHost.mount(UsersPage, {}, root)),
+  Effect.map(rootElement, (root) =>
+    BrowserHost.mount(UsersPage, {}, root, mountOptions),
+  ),
 ).pipe(
   Layer.provide(ApiClient.layer(apiUrl)),
   Layer.provide(FetchHttpClient.layer),
