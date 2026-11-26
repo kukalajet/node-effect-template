@@ -77,8 +77,8 @@ It forwards `/api` to the API at the `API_HOST` and `API_PORT` in `.env`. See
 | --------------------------------------------------- | ------------------ | ------------------------------------------------------------------------- |
 | `DATABASE_URL`                                      | required           | API, worker, migrations, Drizzle Kit, PostgreSQL tests                    |
 | `DATABASE_STATEMENT_TIMEOUT_MS`                     | `10000`            | API and worker: PostgreSQL cancels a statement that runs longer (below)   |
-| `API_HOST`                                          | `127.0.0.1`        | API                                                                       |
-| `API_PORT`                                          | `8000`             | API; Compose also publishes the container API on it                       |
+| `API_HOST`                                          | `127.0.0.1`        | API, web app's `/api` proxy                                               |
+| `API_PORT`                                          | `8000`             | API, web app's `/api` proxy; Compose publishes the container API on it    |
 | `WORKER_POLL_INTERVAL_MS`                           | `5000`             | Worker: the pause after each pass of a job                                |
 | `WORKER_PASS_TIMEOUT_MS`                            | `60000`            | Worker: a pass of a job that runs longer fails the worker                 |
 | `LOG_LEVEL`                                         | `Info`             | API, worker and migrations: the lowest level logged ([Logs](#logs))       |
@@ -281,11 +281,15 @@ runtime runs. The page lists the users `GET /users` returns and adds one with
 
 - **A typed client.** `src/api-client.ts` derives the client from
   `@node-effect/api-contract`, the contract the API serves, so each call's
-  payload, success and declared errors are typed. The page calls the API under
-  `/api` on its own origin, and `pnpm dev:web` forwards those requests to it.
+  payload, success and declared errors are typed. A declared error shows the
+  API's own message; any other failure says that the API could not be reached,
+  which status it answered with, or that its answer could not be read. The page
+  calls the API under `/api` on its own origin, and `pnpm dev:web` forwards
+  those requests to it.
 - **A query for the list.** `ListUsers` in `src/users/list-users.ts` is an
   Effect UI query: the runtime fetches it when the page renders and caches the
-  result, which the view shows as loading, failed or loaded.
+  result, which the view shows as loading, failed or loaded. When fetching it
+  again fails, the rows it had stay, under the reason.
 - **An optimistic create.** The form checks each field with the domain schema
   the API decodes it with. A valid submit issues `CreateUser`, a Command whose
   optimistic patch puts the new user at the top of the list, marked "Saving…",
@@ -293,18 +297,21 @@ runtime runs. The page lists the users `GET /users` returns and adds one with
   `409 USER_ALREADY_EXISTS`, the row goes at once, and the form says why and
   keeps what was typed. If the API creates it, the row stays until the list is
   fetched again, and the saved user takes its place in the render that empties
-  the form.
+  the form; a list slower than five seconds gives the form back first. The form
+  is disabled while the create runs, and its end puts focus back in it.
 - **Tests without a browser.** `src/users/test/` drives `update` in a story, and
   the whole page in a play on Effect UI's test host: the real client over a fake
-  `HttpClient`, whose answer to a create `TestClock` holds back so the test can
-  look at the page before and after it. `pnpm test` runs them with the other
-  unit tests.
+  `HttpClient`, whose answers `TestClock` holds back so the test can look at the
+  page before and after them. `src/test/` checks what the page says for each
+  kind of failed call. `pnpm test` runs them with the other unit tests.
 
 `pnpm build:web` writes the page to `apps/web/dist`, and `pnpm preview:web`
 serves that build with the same `/api` forwarding. The API answers no CORS
-preflight, so in production serve the page and the API from one origin, with
-`/api` routed to the API. The container image and the VPS deployment run only
-the API and the worker.
+preflight, so in production serve the page and the API from one origin, and
+forward `/api/*` to the API with the `/api` prefix removed, as
+`apps/web/vite.config.ts` does: the API's own paths, such as `/users`, have no
+prefix. The container image and the VPS deployment run only the API and the
+worker.
 
 Effect UI is in public preview and not on npm; see
 [Prerelease notes](#prerelease-notes).
@@ -361,9 +368,9 @@ Effect UI is in public preview and not on npm; see
   among others. [READABILITY.md](./READABILITY.md) says which of its rules lint
   enforces.
 - **Config-only lint guards** in `.oxlintrc.json` reject `console`,
-  `process.env` (read `AppConfig`) and `Effect.run*` (run effects with
-  `NodeRuntime.runMain` in an entry point, or `BrowserRuntime.runMain` in the
-  web app's) in `apps/` and `packages/`. They reject imports of
+  `process.env` (read `AppConfig` on the server) and `Effect.run*` (run effects
+  with `NodeRuntime.runMain` in an entry point, or `BrowserRuntime.runMain` in
+  the web app's) in `apps/` and `packages/`. They reject imports of
   `@node-effect/database` and `effect/sql` in every folder under `apps/*/src/`,
   tests included; only the composition roots directly in `src/` may import them.
   Everywhere, they reject non-null assertions (`x!`), `{…} as T` object literal
@@ -403,9 +410,10 @@ Effect UI is in public preview and not on npm; see
   without running it. Errors and warnings fail it; suggestions are not shown.
   The `@effect/language-service` plugin in `tsconfig.json` configures them, with
   `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, Node platform and Vitest
-  modules the template is built on as unstable. `experimentalApiUsage` is off
-  too, since Effect UI marks every API experimental. Fix the code where you can;
-  two `Effect.provide` calls in a row, for example, become one, with the layers
+  modules the template is built on as unstable. `allowedExperimentalApis`
+  exempts `@effect/ui`, which marks every API experimental; any other
+  experimental API still fails the check. Fix the code where you can; two
+  `Effect.provide` calls in a row, for example, become one, with the layers
   merged or provided to each other. To accept a finding on one line, put
   `// @effect-diagnostics-next-line <rule>:off` on the line above, with a
   comment that says why; an unused directive fails the check.
@@ -713,8 +721,9 @@ this README names no exact versions; read them where they are pinned:
 
 Dependencies shared by workspace packages are declared once in the `catalog` and
 referenced as `catalog:`; workspace packages depend on each other with
-`workspace:*`. The Effect packages share one version, as do Drizzle ORM and Kit.
-The lockfile is committed, so indirect resolution is reproducible.
+`workspace:*`. The Effect packages in the catalog share one version, as do
+Drizzle ORM and Kit. The lockfile is committed, so indirect resolution is
+reproducible.
 
 pnpm 12 does not resolve a version published less than a day ago unless you name
 it exactly. With `trustPolicy: no-downgrade` in `pnpm-workspace.yaml`, it also

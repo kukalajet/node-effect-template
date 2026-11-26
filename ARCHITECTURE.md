@@ -41,8 +41,8 @@ The rules behind the diagram are more important than the exact folders:
   domain types, and owns PostgreSQL, Drizzle, tables, row mappings, live
   repository implementations, and the migration entry point.
 - `config` owns validated environment configuration, and `LoggingLive`, the
-  logging every entry point provides, which `LOG_LEVEL` configures. It lives
-  here because every executable, `migrate` included, already depends on
+  logging every server entry point provides, which `LOG_LEVEL` configures. It
+  lives here because every executable, `migrate` included, already depends on
   `config`, which depends only on Effect, and a package of its own would add a
   manifest for one module. It contains no business or transport logic.
 - API route modules and worker job modules depend on `application` and `domain`,
@@ -110,6 +110,7 @@ apps/
       main.ts                     # browser entry: mounts the page, provides the HTTP client
       api-client.ts               # ApiClient: the client the contract derives
       styles.css
+      test/                       # what the page says for each kind of failed call
       users/
         list-users.ts             # ListUsers query, and the rows it holds
         users-page.ts             # the page, its form and the CreateUser Command
@@ -543,7 +544,12 @@ Module mocking fails lint.
   test host and drives it as a user does, with its real queries and Commands
   over a fake `HttpClient` that serves the API from memory, so the contract's
   encoding is tested too. `TestClock` holds back the fake API's answer, so a
-  test sees what the page shows before the answer and after it.
+  test sees what the page shows before the answer and after it. A clock step
+  runs what it wakes, but the client reads an answer's body through a Promise,
+  which only a play step waits for, so a play step goes between two clock steps.
+  Commands that act on elements, such as `HtmlCommand.focus`, need `Html.Host`,
+  which a play fakes with `Layer.succeed`, as `users-page.play.test.ts` does to
+  record what the page focuses.
 - **Database adapter unit tests** run the real Drizzle queries, row decoding,
   and error mapping against a fake `PgClient` (`pgClientLayer` and its
   connections in `packages/database/src/test/pg-client.ts`).
@@ -564,7 +570,8 @@ Module mocking fails lint.
   them, for example that a secret never reaches a log line. A test of the lines
   production writes provides `LoggingLive` with a `TestConsole`, as
   `access-log.test.ts` does. Outside tests, lint rejects Effect's
-  `Logger.console*` loggers: entry points provide `LoggingLive`.
+  `Logger.console*` loggers: server entry points provide `LoggingLive`, and the
+  web app keeps Effect's default logger.
 - **Tests of generic code** use probes of their own rather than the users
   example: a `ProbeFailure` built with `persistenceFailureFields`, which
   `application` exports for them, or the `probe_items` table that the runtime
