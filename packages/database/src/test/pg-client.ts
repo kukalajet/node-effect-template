@@ -29,6 +29,7 @@ const pgClientLayer = (
           },
           listen: () => unexpectedOperation,
           notify: () => unexpectedOperation,
+          poolStats: unexpectedOperation,
         } satisfies Omit<PgClient.PgClient, keyof SqlClient.SqlClient>),
       ),
     ),

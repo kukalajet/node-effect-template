@@ -3,12 +3,12 @@ packages:
   - packages/*
 
 catalog:
-  '@effect/platform-node': 4.0.6
-  '@effect/sql-pg': 4.0.6
-  '@effect/vitest': 4.0.6
+  '@effect/platform-node': 4.1.5
+  '@effect/sql-pg': 4.1.5
+  '@effect/vitest': 4.1.5
   drizzle-kit: 1.0.0-rc.5
   drizzle-orm: 1.0.0-rc.5
-  effect: 4.0.6
+  effect: 4.1.5
 
 # Refuse a package version published with weaker evidence than an earlier
 # version of the same package, such as no provenance after releases that had
