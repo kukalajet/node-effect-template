@@ -2,11 +2,14 @@
 
 Reusable backend starter: Node.js 26, Effect 4, PostgreSQL and Drizzle, with an
 HTTP API, a persistent worker, and a production deployment to a single VPS
-behind Cloudflare Tunnel. The users feature and the polling job are examples to
-replace with your own.
+behind Cloudflare Tunnel. A small web app built with
+[Effect UI](https://ui.effect.website/) shows the API from a browser. The users
+feature, the polling job and the web app's page are examples to replace with
+your own.
 
-Node runs the TypeScript sources directly: there is no build step. Packages
-follow dependency boundaries and application code is grouped by feature. See
+Node runs the API's and worker's TypeScript sources directly: there is no build
+step. Vite bundles the web app for the browser. Packages follow dependency
+boundaries and application code is grouped by feature. See
 [ARCHITECTURE.md](./ARCHITECTURE.md) for code placement, Effect composition and
 testing conventions, and [READABILITY.md](./READABILITY.md) for the code style
 that lint cannot check.
@@ -57,6 +60,16 @@ pnpm dev:worker
 
 Both load `.env` with `node --env-file` and restart when a source file changes.
 The API listens on `http://127.0.0.1:8000`; open `/docs` for Swagger UI.
+
+For the web app, run its dev server beside the API and open
+`http://localhost:5173`:
+
+```sh
+pnpm dev:web
+```
+
+It forwards `/api` to the API at the `API_HOST` and `API_PORT` in `.env`. See
+[Web app](#web-app).
 
 ### Environment
 
@@ -260,6 +273,44 @@ parameters (`UrlParams.CurrentRedactedNames`). Reduce persistence failures with
 `redactPersistenceFailures`, and drop or redact those attributes, before
 anything leaves the process.
 
+## Web app
+
+`apps/web` is one page built with [Effect UI](https://ui.effect.website/)
+(`@effect/ui`), Effect's frontend library in the Elm Architecture: a component's
+Model changes only in its `update`, and its side effects are Commands that the
+runtime runs. The page lists the users `GET /users` returns and adds one with
+`POST /users`.
+
+- **A typed client.** `src/api-client.ts` derives the client from
+  `@node-effect/api-contract`, the contract the API serves, so each call's
+  payload, success and declared errors are typed. The page calls the API under
+  `/api` on its own origin, and `pnpm dev:web` forwards those requests to it.
+- **A query for the list.** `ListUsers` in `src/users/list-users.ts` is an
+  Effect UI query: the runtime fetches it when the page renders and caches the
+  result, which the view shows as loading, failed or loaded.
+- **An optimistic create.** The form checks each field with the domain schema
+  the API decodes it with. A valid submit issues `CreateUser`, a Command whose
+  optimistic patch puts the new user at the top of the list, marked "Saving…",
+  before the API answers. If the API refuses it, as with
+  `409 USER_ALREADY_EXISTS`, the row goes at once, and the form says why and
+  keeps what was typed. If the API creates it, the row stays until the list is
+  fetched again, and the saved user takes its place in the render that empties
+  the form.
+- **Tests without a browser.** `src/users/test/` drives `update` in a story, and
+  the whole page in a play on Effect UI's test host: the real client over a fake
+  `HttpClient`, whose answer to a create `TestClock` holds back so the test can
+  look at the page before and after it. `pnpm test` runs them with the other
+  unit tests.
+
+`pnpm build:web` writes the page to `apps/web/dist`, and `pnpm preview:web`
+serves that build with the same `/api` forwarding. The API answers no CORS
+preflight, so in production serve the page and the API from one origin, with
+`/api` routed to the API. The container image and the VPS deployment run only
+the API and the worker.
+
+Effect UI is in public preview and not on npm; see
+[Prerelease notes](#prerelease-notes).
+
 ## Scripts
 
 | Script                                | What it does                                                                                          |
@@ -268,6 +319,8 @@ anything leaves the process.
 | `pnpm dev:api`, `pnpm dev:worker`     | Runs the API or worker with `.env`, restarting on changes                                             |
 | `pnpm start:api`, `pnpm start:worker` | Runs the API or worker with `.env`, without watching                                                  |
 | `pnpm sample:worker`                  | Runs one pass of every worker job, then exits                                                         |
+| `pnpm dev:web`                        | Serves the web app at `http://localhost:5173`, forwarding `/api` to the API                           |
+| `pnpm build:web`, `pnpm preview:web`  | Builds the web app into `apps/web/dist`, or serves that build, forwarding `/api` to the API           |
 | `pnpm db:generate --name=<change>`    | Generates a migration in `drizzle/` from schema changes (Drizzle Kit)                                 |
 | `pnpm db:check`                       | Prints Drizzle Kit's migration check; it exits 0 even when the schema differs                         |
 | `pnpm db:verify`                      | Fails when the schema files and the migrations in `drizzle/` differ; part of `pnpm check`             |
@@ -277,10 +330,10 @@ anything leaves the process.
 | `pnpm fmt`                            | Formats every file with oxfmt                                                                         |
 | `pnpm lint`                           | Lints with oxlint                                                                                     |
 | `pnpm fix`                            | Formats, then applies safe lint fixes                                                                 |
-| `pnpm typecheck`                      | Type-checks with TypeScript's `tsc` and Effect's diagnostics (`scripts/typecheck.ts`)                 |
+| `pnpm typecheck`                      | Type-checks both projects with TypeScript's `tsc` and Effect's diagnostics (`scripts/typecheck.ts`)   |
 | `pnpm test`                           | Runs the unit tests                                                                                   |
 | `pnpm test:postgres`                  | Runs the tests that need PostgreSQL                                                                   |
-| `pnpm check`                          | Format check, lint, type check, migration drift check and unit tests: what CI and the image build run |
+| `pnpm check`                          | Format, lint, type and migration drift checks, unit tests, web build: what CI and the image build run |
 | `pnpm check:static`                   | shellcheck, actionlint and zizmor from pinned Docker images: what CI's `static` job runs              |
 | `pnpm smoke:docker`                   | Smoke-tests a built image against a real PostgreSQL                                                   |
 | `pnpm scan:image [image]`             | Scans a built image with Grype as CI does; the default image is `node-effect-template:local`          |
@@ -311,14 +364,15 @@ anything leaves the process.
   enforces.
 - **Config-only lint guards** in `.oxlintrc.json` reject `console`,
   `process.env` (read `AppConfig`) and `Effect.run*` (run effects with
-  `NodeRuntime.runMain` in an entry point) in `apps/` and `packages/`. They
-  reject imports of `@node-effect/database` and `effect/sql` in every folder
-  under `apps/*/src/`, tests included; only the composition roots directly in
-  `src/` may import them. Everywhere, they reject non-null assertions (`x!`),
-  `{…} as T` object literal assertions and shadowed names. Tests,
-  `*.postgres.ts`, `*.fixtures.ts` and `postgres.setup.ts` may use `console`,
-  `process.env`, `Effect.run*` and `!`. The `Effect.run*` guard matches the call
-  as written, so `import { runPromise } from "effect/Effect"` slips past it.
+  `NodeRuntime.runMain` in an entry point, or `BrowserRuntime.runMain` in the
+  web app's) in `apps/` and `packages/`. They reject imports of
+  `@node-effect/database` and `effect/sql` in every folder under `apps/*/src/`,
+  tests included; only the composition roots directly in `src/` may import them.
+  Everywhere, they reject non-null assertions (`x!`), `{…} as T` object literal
+  assertions and shadowed names. Tests, `*.postgres.ts`, `*.fixtures.ts` and
+  `postgres.setup.ts` may use `console`, `process.env`, `Effect.run*` and `!`.
+  The `Effect.run*` guard matches the call as written, so
+  `import { runPromise } from "effect/Effect"` slips past it.
 - **Type-aware lint** (`options.typeAware`) runs the rules that need the type
   checker through `oxlint-tsgolint`, which `vite-plus` pins; the root
   `devDependencies` repeat it so editors and the standalone `oxlint` find it.
@@ -335,21 +389,25 @@ anything leaves the process.
   trailing commas, and Markdown prose wrapped at 80 columns. Import sorting is
   lint's job, in five groups: `node:` built-ins, packages, `@node-effect/*`,
   `../`, then `./`.
-- **Type checking** uses the single root `tsconfig.json` (strict,
+- **Type checking** uses the root `tsconfig.json` (strict,
   `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, and unused-code
-  checks). `pnpm typecheck` runs TypeScript 7's `tsc` as `@effect/tsgo` builds
-  it, with the Effect language service inside: `scripts/typecheck.ts` picks the
-  build made from the installed `typescript`, and fails when there is none.
-  Type-aware lint reads types through `oxlint-tsgolint`'s own TypeScript build,
-  without Effect's diagnostics; the type check is the authoritative one.
+  checks). `apps/web/tsconfig.json` extends it for the web app's `src`, which
+  runs in a browser: it has the DOM's types and none of Node's, and the root
+  project leaves that folder out. `pnpm typecheck` checks both projects with
+  TypeScript 7's `tsc` as `@effect/tsgo` builds it, with the Effect language
+  service inside: `scripts/typecheck.ts` picks the build made from the installed
+  `typescript`, and fails when there is none. Type-aware lint reads types
+  through `oxlint-tsgolint`'s own TypeScript build, without Effect's
+  diagnostics; the type check is the authoritative one.
 - **Effect's diagnostics.** The type check also reports mistakes that plain
   `tsc` passes, such as an Effect that is built but never run, `yield` written
   for `yield*`, and an Effect returned to a plain Vitest `it`, which passes
   without running it. Errors and warnings fail it; suggestions are not shown.
   The `@effect/language-service` plugin in `tsconfig.json` configures them, with
   `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, Node platform and Vitest
-  modules the template is built on as unstable. Fix the code where you can; two
-  `Effect.provide` calls in a row, for example, become one, with the layers
+  modules the template is built on as unstable. `experimentalApiUsage` is off
+  too, since Effect UI marks every API experimental. Fix the code where you can;
+  two `Effect.provide` calls in a row, for example, become one, with the layers
   merged or provided to each other. To accept a finding on one line, put
   `// @effect-diagnostics-next-line <rule>:off` on the line above, with a
   comment that says why; an unused directive fails the check.
@@ -373,7 +431,8 @@ anything leaves the process.
   layers; module mocking fails lint. API tests check every response against the
   endpoint contract, and the served OpenAPI document against the one generated
   from the code. Database adapter tests run the real Drizzle queries against a
-  fake PostgreSQL client.
+  fake PostgreSQL client. The web app's tests run its page on Effect UI's test
+  host, with no browser (see [Web app](#web-app)).
 - **`pnpm test:postgres`** runs every `*.postgres.ts` under `apps/` and
   `packages/`, one file at a time, against a real PostgreSQL. Each test creates
   a schema with a random name, applies the migrations in `drizzle/`, and drops
@@ -648,6 +707,7 @@ this README names no exact versions; read them where they are pinned:
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `package.json`                                           | Node (`devEngines.runtime`), pnpm (`packageManager`, `devEngines.packageManager`) and the root `devDependencies`            |
 | `pnpm-workspace.yaml`                                    | The `catalog` of dependencies the workspace packages share, such as Effect and Drizzle, and the Vite and Vitest `overrides` |
+| `apps/web/package.json`                                  | `@effect/ui` by the commit of its snapshot build (see [Prerelease notes](#prerelease-notes))                                |
 | `Dockerfile`                                             | The Node base image by digest, the pnpm it installs, and the Dockerfile syntax image                                        |
 | `docker-compose.yml`, `deploy/vps/compose.yml`, `ci.yml` | PostgreSQL by digest, and in `deploy/vps/compose.yml` `cloudflared`                                                         |
 | `scripts/check-static.sh`, `scripts/scan-image.sh`       | The shellcheck, actionlint, zizmor and Grype images by digest                                                               |
@@ -655,8 +715,8 @@ this README names no exact versions; read them where they are pinned:
 
 Dependencies shared by workspace packages are declared once in the `catalog` and
 referenced as `catalog:`; workspace packages depend on each other with
-`workspace:*`. The four Effect packages share one version, as do Drizzle ORM and
-Kit. The lockfile is committed, so indirect resolution is reproducible.
+`workspace:*`. The Effect packages share one version, as do Drizzle ORM and Kit.
+The lockfile is committed, so indirect resolution is reproducible.
 
 pnpm 12 does not resolve a version published less than a day ago unless you name
 it exactly. With `trustPolicy: no-downgrade` in `pnpm-workspace.yaml`, it also
@@ -754,11 +814,22 @@ Effect TypeScript executable matches installed TypeScript …" and what to do.
 Renovate does not manage the image built from this repository
 (`node-effect-template:local` and the commit-tagged release images), the
 `ubuntu-latest` runners, the Grype vulnerability database (each scan downloads
-the current one), or the Debian packages inside the base images, which arrive
-with a new base image digest.
+the current one), the Debian packages inside the base images, which arrive with
+a new base image digest, or `@effect/ui`, which comes from a URL (see
+[Prerelease notes](#prerelease-notes)).
 
 ## Prerelease notes
 
+- **Effect UI** is in public preview and not on npm. Each commit to its `main`
+  is published as a snapshot build on [pkg.pr.new](https://pkg.pr.new/), and
+  `apps/web/package.json` installs `@effect/ui` from the build of one commit, by
+  its short SHA. The lockfile holds the tarball's integrity hash, so a rebuilt
+  tarball fails the install instead of slipping in, and `pnpm install` needs to
+  reach `pkg.pr.new`. Its APIs can change from one commit to the next. To update
+  it, replace the SHA with a newer commit's from
+  [its builds](https://pkg.pr.new/~/Effect-TS/ui), run `pnpm install`, then
+  `pnpm check`. It requires `effect` at the version its manifest names, which
+  the Effect group in the catalog has to meet.
 - **Drizzle 1.0** is a release candidate. From rc.5 on it works with stable
   Effect 4 (`Schema.TaggedError`, `effect/sql`), so no patch is needed.
   `migrate.ts` uses its Effect migrator, `drizzle-orm/effect-postgres/migrator`.

@@ -24,7 +24,8 @@ Lint (`.oxlintrc.json`) also requires:
 - No `console`, `process.env` or `Effect.run*` in `apps/` or `packages/` outside
   tests: log with Effect, read `AppConfig`, and run effects only with
   `NodeRuntime.runMain` in an entry point, which provides `LoggingLive` from
-  `@node-effect/config` (JSON lines at `LOG_LEVEL`).
+  `@node-effect/config` (JSON lines at `LOG_LEVEL`). The web app's browser entry
+  runs with `BrowserRuntime.runMain` instead.
 - No `@node-effect/database` or `effect/sql` imports in any folder under
   `apps/*/src/`, tests included. Provide adapters in the composition roots
   directly in `src/` (`request-services-live.ts`, `worker-runtime.ts`).

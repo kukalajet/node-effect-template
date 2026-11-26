@@ -16,6 +16,7 @@ API routes -----------+
 worker jobs ----------+
 
 API routes ---------------> api-contract --> domain
+web app -----------------> api-contract + domain
 
 database adapters --------> application + domain
 database infrastructure --> config
@@ -50,6 +51,11 @@ The rules behind the diagram are more important than the exact folders:
   `request-services-live.ts`, and `apps/worker/src/worker-runtime.ts`) may
   import every layer it needs, because its job is to select implementations,
   assemble the layer graph, provide `LoggingLive`, and launch the runtime.
+- The web app (`apps/web`) runs in a browser and reaches the server only over
+  HTTP: it depends on `api-contract`, whose client it calls, and on `domain`,
+  whose schemas check its form, never on `application`, `database` or `config`.
+  Everything it imports is bundled by Vite, so its manifest lists them as
+  `devDependencies`, and the production image installs none of them.
 
 pnpm enforces part of this. Each workspace package lists its own runtime
 dependencies in its `package.json` (`catalog:` versions and `workspace:*`
@@ -59,12 +65,12 @@ scripts) still resolve from every package during development, but the production
 image installs only each package's declared dependencies. Declare every runtime
 import in the manifest of the package that imports it.
 
-Lint enforces the part pnpm cannot. Both apps depend on `@node-effect/database`
-for their composition roots, so pnpm lets routes and jobs import it too. Lint
-rejects imports of `@node-effect/database` and `effect/sql` in every folder
-under `apps/*/src/`, tests included; only the files directly in `src/` may
-import them. A composition root placed inside a feature folder needs its own
-override in `.oxlintrc.json`.
+Lint enforces the part pnpm cannot. The API and the worker depend on
+`@node-effect/database` for their composition roots, so pnpm lets routes and
+jobs import it too. Lint rejects imports of `@node-effect/database` and
+`effect/sql` in every folder under `apps/*/src/`, tests included; only the files
+directly in `src/` may import them. A composition root placed inside a feature
+folder needs its own override in `.oxlintrc.json`.
 
 ## Layout
 
@@ -96,6 +102,18 @@ apps/
       worker-jobs.ts              # the job table: every job the worker runs
       test/
     test/                         # job runner and failure reporting tests
+  web/
+    index.html                    # the page Vite serves and builds
+    vite.config.ts                # dev server and preview: /api forwarded to the API
+    tsconfig.json                 # the DOM's types for src, none of Node's
+    src/
+      main.ts                     # browser entry: mounts the page, provides the HTTP client
+      api-client.ts               # ApiClient: the client the contract derives
+      styles.css
+      users/
+        list-users.ts             # ListUsers query, and the rows it holds
+        users-page.ts             # the page, its form and the CreateUser Command
+        test/                     # story of its update, play of the whole page
 
 packages/
   domain/
@@ -183,6 +201,9 @@ today; ownership, rather than line count, decides the location.
 | Shared PostgreSQL client or Drizzle service                                | `packages/database/src/postgres.ts`                                                                      |
 | Environment variable parsing, validation, or defaults                      | `packages/config/src/`, plus `.env.example`, `docker-compose.yml` and `deploy/vps/`                      |
 | Production layer selection and process startup                             | the executable's composition root                                                                        |
+| A web page or component, with the Commands it runs                         | `apps/web/src/<feature>/`, one file per component                                                        |
+| A web query: data a component fetches from the API                         | `apps/web/src/<feature>/`, a `Query.Service` whose fetcher calls `ApiClient`                             |
+| Platform layers of the web app, such as the HTTP client                    | `apps/web/src/main.ts`; a component provides its own queries and Commands with `Component.provide`       |
 | A fake service for a test                                                  | beside the consuming test                                                                                |
 | Fixtures shared by several tests                                           | `*.fixtures.ts` in the `test/` folder                                                                    |
 
@@ -194,7 +215,8 @@ directly; a forwarding `UserService` adds no boundary.
 ## Effect services and layers
 
 The code uses Effect 4's stable module paths: `effect/http`, `effect/http-api`,
-`effect/sql` and `effect/testing`, never `effect/unstable/*`.
+`effect/reactivity`, `effect/sql` and `effect/testing`, never
+`effect/unstable/*`.
 
 Keep the contract, implementation, composition, and test replacement separate:
 
@@ -227,10 +249,12 @@ Keep the contract, implementation, composition, and test replacement separate:
    type check fails on two in a row (Effect's `multipleEffectProvide` rule).
 
    Every entry point provides `LoggingLive` last, outside its failure reporter,
-   so the report is a JSON line too. Never provide a logger or a log level
-   inside the routes: HttpApi merges the context its handlers were built with
-   over each request's, so it would replace the entry point's for those
-   handlers.
+   so the report is a JSON line too. The web app's entry is the exception: in a
+   browser there is no log stream to collect, so it keeps Effect's default
+   logger, which writes to the browser's console. Never provide a logger or a
+   log level inside the routes: HttpApi merges the context its handlers were
+   built with over each request's, so it would replace the entry point's for
+   those handlers.
 
 5. In a consumer test, replace the contract directly with `Layer.succeed` or
    `Layer.mock`. Route and job unit tests should not start PostgreSQL or import
@@ -401,10 +425,13 @@ details.
 
 ## Process lifecycle
 
-Each entry point runs with `NodeRuntime.runMain` from `@effect/platform-node`.
-It exits 0 when the program completes, 1 when it fails, and 130 when SIGINT or
-SIGTERM interrupts it, after running every finalizer. Containers run `node` as
-PID 1, never `pnpm`, which does not pass signals on.
+Each server entry point runs with `NodeRuntime.runMain` from
+`@effect/platform-node`. The web app's, `apps/web/src/main.ts`, runs in a
+browser with `BrowserRuntime.runMain` from `@effect/platform-browser`, which
+interrupts the app when the page is discarded. A server entry point exits 0 when
+the program completes, 1 when it fails, and 130 when SIGINT or SIGTERM
+interrupts it, after running every finalizer. Containers run `node` as PID 1,
+never `pnpm`, which does not pass signals on.
 
 The API's PostgreSQL pool opens connections on demand, so unavailable PostgreSQL
 does not prevent the HTTP process from starting. `/health/live` checks only
@@ -512,6 +539,13 @@ Module mocking fails lint.
 - **Worker tests** run the job runner on synthetic jobs, which need no port, so
   adding or replacing a job leaves them alone. A job's own test fakes the ports
   it uses, as `apps/worker/src/jobs/test/sample-users.test.ts` does.
+- **Web tests** use Effect UI's test kits, which need no browser. A story
+  (`*.story.test.ts`) sends messages to a component's `update` and resolves its
+  Commands by hand. A play (`*.play.test.ts`) mounts the page on Effect UI's
+  test host and drives it as a user does, with its real queries and Commands
+  over a fake `HttpClient` that serves the API from memory, so the contract's
+  encoding is tested too. `TestClock` holds back the fake API's answer, so a
+  test sees what the page shows before the answer and after it.
 - **Database adapter unit tests** run the real Drizzle queries, row decoding,
   and error mapping against a fake `PgClient` (`pgClientLayer` and its
   connections in `packages/database/src/test/pg-client.ts`).

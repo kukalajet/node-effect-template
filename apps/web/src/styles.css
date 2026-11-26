@@ -1,0 +1,169 @@
+:root {
+  color-scheme: light dark;
+  --page: #f5f6f8;
+  --surface: #ffffff;
+  --text: #17181c;
+  --muted: #5d6170;
+  --border: #d9dce3;
+  --accent: #2f54eb;
+  --accent-text: #ffffff;
+  --danger: #c4314b;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #111216;
+    --surface: #1a1c22;
+    --text: #e8e9ee;
+    --muted: #9a9fae;
+    --border: #2e313b;
+    --accent: #7b93ff;
+    --accent-text: #0d0f14;
+    --danger: #ff7a8a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+}
+
+.users-page {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 3rem 1rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.lede,
+.status {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+}
+
+.new-user {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.new-user fieldset {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+  min-width: 0;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.field label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.field input {
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field-error,
+.notice {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+
+.new-user button {
+  /* Lines the button up with the inputs, under the fields' labels. */
+  margin-top: calc(0.875rem * 1.5 + 0.25rem);
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.new-user fieldset:disabled button {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.users {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  list-style: none;
+}
+
+.user {
+  display: grid;
+  /* A fixed status column keeps the columns aligned from row to row. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 11rem;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.user-status {
+  text-align: end;
+}
+
+.user + .user {
+  border-top: 1px solid var(--border);
+}
+
+.user-email,
+.user-status {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.user-pending {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+@media (max-width: 36rem) {
+  .new-user fieldset,
+  .user {
+    grid-template-columns: 1fr;
+  }
+
+  .new-user button {
+    margin-top: 0;
+  }
+}

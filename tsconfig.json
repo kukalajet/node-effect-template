@@ -41,7 +41,10 @@
           // @effect/sql-pg, @effect/platform-node and @effect/vitest unstable.
           // The template is built on them, so this rule would flag about 250
           // places, every `it` in the tests among them.
-          "unstableApiUsage": "off"
+          "unstableApiUsage": "off",
+          // @effect/ui and @effect/ui-kit mark every API experimental while
+          // they are in public preview, and the web app is built on them.
+          "experimentalApiUsage": "off"
         },
         // Suggestions never fail the type check; left in, they would print on
         // every passing run.
@@ -57,6 +60,7 @@
     "vite.config.ts"
   ],
   // Code written to fail the type check, which scripts/typecheck.test.ts
-  // checks on its own.
-  "exclude": ["**/node_modules", "scripts/fixtures"]
+  // checks on its own, and the web app's browser code, which
+  // apps/web/tsconfig.json checks with the DOM's types instead of Node's.
+  "exclude": ["**/node_modules", "scripts/fixtures", "apps/web/src"]
 }

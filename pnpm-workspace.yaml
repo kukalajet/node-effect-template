@@ -3,6 +3,7 @@ packages:
   - packages/*
 
 catalog:
+  '@effect/platform-browser': 4.1.5
   '@effect/platform-node': 4.1.5
   '@effect/sql-pg': 4.1.5
   '@effect/vitest': 4.1.5

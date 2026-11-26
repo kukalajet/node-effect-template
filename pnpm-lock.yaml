@@ -164,6 +164,9 @@ settings:
 
 catalogs:
   default:
+    '@effect/platform-browser':
+      specifier: 4.1.5
+      version: 4.1.5
     '@effect/platform-node':
       specifier: 4.1.5
       version: 4.1.5
@@ -260,6 +263,24 @@ importers:
         specifier: 'catalog:'
         version: 4.1.5
 
+  apps/web:
+    devDependencies:
+      '@effect/platform-browser':
+        specifier: 'catalog:'
+        version: 4.1.5(effect@4.1.5)
+      '@effect/ui':
+        specifier: https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07
+        version: https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07(effect@4.1.5)
+      '@node-effect/api-contract':
+        specifier: workspace:*
+        version: link:../../packages/api-contract
+      '@node-effect/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.5
+
   apps/worker:
     dependencies:
       '@effect/platform-node':
@@ -349,6 +370,11 @@ packages:
   '@blazediff/core@1.10.0':
     resolution: {integrity: sha512-AOQff0zgR7cGsZL+4E7hVkmujoPUpm0J9xzWGWZj5wCjd3gmxESXAPfKyuzs93VdpQNFhHlBhfOjrcZ+XTERtQ==}
 
+  '@effect/platform-browser@4.1.5':
+    resolution: {integrity: sha512-48wRnowGMrUtcF8A0xlqPh6HY/01NTYoA9HNwqGRLNGUXbQHbN97zhr6+qvsxJ4seHipjLXazegSwMkUHarPdQ==}
+    peerDependencies:
+      effect: ^4.1.5
+
   '@effect/platform-node-shared@4.1.5':
     resolution: {integrity: sha512-JzlrYe4uKaBFTWihBRXo2pDjkUVB39kQpKdGfXdbp7Co5sKT8hbcjOmdB5pg/WOYESdGTddd3fxD4lwlZELbZQ==}
     engines: {node: '>=22.19.0'}
@@ -408,6 +434,12 @@ packages:
   '@effect/tsgo@0.56.1':
     resolution: {integrity: sha512-T5dDXNbR3yMkqxopv4KIaEhkv1EQ5jlwJdpzjNBEfCKxH1WanVoBhwU2M0fq+u17ATYWdzMt3vXV896Rz348jA==}
     hasBin: true
+
+  '@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07':
+    resolution: {integrity: sha512-eprvfkEi+LtTengutpFh4A5GdV67I5JmNcmeJ+emSXrpnWeGghoCaSVh2AKvT0V7IRZfByxU6mMIrvFWPczFeA==, tarball: https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07}
+    version: 0.0.0
+    peerDependencies:
+      effect: ^4.1.4
 
   '@effect/vitest@4.1.5':
     resolution: {integrity: sha512-18u1013wkJtSelk1ZYLc/5aUnluTQyDfi2hAemkJW1GQ9qXw4mtPSiSf0AXZPhesmGCvG1Dk2C4JYD2sz+R72w==}
@@ -1827,6 +1859,10 @@ snapshots:
 
   '@blazediff/core@1.10.0': {}
 
+  '@effect/platform-browser@4.1.5(effect@4.1.5)':
+    dependencies:
+      effect: 4.1.5
+
   '@effect/platform-node-shared@4.1.5(effect@4.1.5)':
     dependencies:
       '@types/ws': 8.18.2
@@ -1879,6 +1915,10 @@ snapshots:
       '@effect/tsgo-linux-x64': 0.56.1
       '@effect/tsgo-win32-arm64': 0.56.1
       '@effect/tsgo-win32-x64': 0.56.1
+
+  '@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@efdee07(effect@4.1.5)':
+    dependencies:
+      effect: 4.1.5
 
   '@effect/vitest@4.1.5(effect@4.1.5)(vitest@5.0.5)':
     dependencies:

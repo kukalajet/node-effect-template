@@ -153,62 +153,62 @@
           {
             "object": "Effect",
             "property": "runCallback",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runCallbackWith",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runFork",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runForkWith",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runPromise",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runPromiseExit",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runPromiseExitWith",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runPromiseWith",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runSync",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runSyncExit",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runSyncExitWith",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Effect",
             "property": "runSyncWith",
-            "message": "Run effects in an entrypoint, with NodeRuntime.runMain. Elsewhere, compose them with yield* and layers."
+            "message": "Run effects in an entrypoint, with NodeRuntime.runMain, or BrowserRuntime.runMain in the web app. Elsewhere, compose them with yield* and layers."
           },
           {
             "object": "Logger",
