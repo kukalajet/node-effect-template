@@ -133,7 +133,8 @@ only safe diagnostics such as a SQLSTATE code.
 
 The API starts while the database is unavailable, because the connection pool
 opens connections on demand. Liveness stays 200 during an outage; readiness and
-user requests fail until PostgreSQL returns.
+user requests fail until PostgreSQL returns. A `DATABASE_URL` that does not
+parse stops it from starting, as invalid configuration does.
 
 Database work has time limits. On the connections of the API, the worker and the
 CLI, PostgreSQL cancels a statement after `DATABASE_STATEMENT_TIMEOUT_MS`

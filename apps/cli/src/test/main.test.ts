@@ -18,6 +18,9 @@ const mainPath = fileURLToPath(new URL("../main.ts", import.meta.url));
 const unreachableDatabaseUrl =
   "postgresql://app:SECRET_SENTINEL@127.0.0.1:1/app";
 
+// A URL that does not parse, whose password must not reach the log either.
+const malformedDatabaseUrl = "postgresql://app:SECRET_SENTINEL@[bad/app";
+
 // Runs main.ts with `args` and only `env`, so neither the shell's LOG_LEVEL
 // nor .env changes the result.
 const runCli = (args: ReadonlyArray<string>, env: Record<string, string>) => {
@@ -128,6 +131,32 @@ describe("apps/cli/src/main.ts", () => {
     );
 
     assert.notInclude(stderr, "SECRET_SENTINEL");
+  });
+
+  it("reports a DATABASE_URL it cannot parse by safe diagnostics", () => {
+    // PgClient.make parses the URL while the services are built, before any
+    // repository could turn its SqlError into a persistence failure.
+    const { status, stdout, stderr } = runCli(["users", "list"], {
+      DATABASE_URL: malformedDatabaseUrl,
+    });
+
+    const lines = loggedLines(stderr);
+
+    assert.strictEqual(status, 1);
+    assert.strictEqual(stdout, "");
+
+    assert.deepStrictEqual(
+      lines.map((line) => [line.message, line.level]),
+      [["CLI failed", "ERROR"]],
+    );
+
+    assert.include(
+      lines[0]?.cause,
+      '"diagnostics":{"reason":"ConnectionError","code":"ERR_INVALID_URL"}',
+    );
+
+    assert.notInclude(stderr, "SECRET_SENTINEL");
+    assert.notInclude(stderr, "    at ");
   });
 
   it("stops a command in flight on SIGTERM, logs nothing, and exits 130", async () => {

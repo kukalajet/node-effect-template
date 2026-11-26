@@ -442,22 +442,27 @@ stays off, since no module test can see either setting. The worker's
 `src/test/main.test.ts` and `src/test/once.test.ts`, the CLI's
 `src/test/main.test.ts`, and the process tests in
 `packages/database/src/test/migrate.test.ts`, run the other entry points the
-same way, without PostgreSQL. They check that a failure, from configuration or
-from a database that refuses connections, is logged once, as JSON, with nothing
-else written, and that SIGTERM ends a polling pass or a command in flight with
-exit 130 and no log line. The CLI's also check that it logs on standard error,
-which leaves standard output to what a command prints, that `--help`,
-`--version` and invalid input need no configuration, and that a group run
-without a command needs configuration but no database. The reporters' own tests
-run them under a test logger. `LoggingLive` and `StderrLoggingLive` report their
-own failure, an invalid `LOG_LEVEL`, because nothing outside them can.
+same way, without PostgreSQL. They check that a failure, from configuration,
+from a `DATABASE_URL` that does not parse, or from a database that refuses
+connections, is logged once, as JSON, with nothing else written, and that
+SIGTERM ends a polling pass or a command in flight with exit 130 and no log
+line. The CLI's also check that it logs on standard error, which leaves standard
+output to what a command prints, that `--help`, `--version` and invalid input
+need no configuration, and that a group run without a command needs
+configuration but no database. The reporters' own tests run them under a test
+logger. `LoggingLive` and `StderrLoggingLive` report their own failure, an
+invalid `LOG_LEVEL`, because nothing outside them can.
 
-`migrate.ts` uses `reportFailure` too, with a redaction of its own:
+Every Node entry point also passes `reportFailure` a redaction,
+`databaseFailureRedaction` from `@node-effect/database`:
 `reportFailure(message, { isSensitive, report })` also reduces what
-`isSensitive` accepts. The migrator fails with raw database errors rather than
-persistence failures, so a database error is logged with its tag and
-diagnostics, also one that arrives as a defect because a finalizer died, while
-other failures, such as missing configuration, keep their details.
+`isSensitive` accepts, here a raw database error that no repository turned into
+a persistence failure. The migrator fails with raw database errors, and the API,
+the worker and the CLI fail with one while their services are built when
+`DATABASE_URL` does not parse, since `PgClient` parses it then. Such an error is
+logged with its tag and diagnostics, also one that arrives as a defect because a
+finalizer died, while other failures, such as missing configuration, keep their
+details.
 
 ## Process lifecycle
 
@@ -470,14 +475,15 @@ interrupts it, after running every finalizer. Containers run `node` as PID 1,
 never `pnpm`, which does not pass signals on.
 
 The API's PostgreSQL pool opens connections on demand, so unavailable PostgreSQL
-does not prevent the HTTP process from starting. `/health/live` checks only
-process liveness; `/health/ready` and its `/health` alias query the database
-with a timeout. Container health checks use liveness, so a database outage never
-restarts the API; deployment smoke checks and uptime monitoring use readiness.
-On shutdown the server stops accepting connections and gives in-flight requests
-up to 10 seconds. It keeps an idle keep-alive connection open for 95 seconds,
-longer than Cloudflare Tunnel's 90, so the tunnel never sends a request on a
-connection the API is closing (`apps/api/src/main.ts`).
+does not prevent the HTTP process from starting; a `DATABASE_URL` that does not
+parse does, because the client parses it when it is built. `/health/live` checks
+only process liveness; `/health/ready` and its `/health` alias query the
+database with a timeout. Container health checks use liveness, so a database
+outage never restarts the API; deployment smoke checks and uptime monitoring use
+readiness. On shutdown the server stops accepting connections and gives
+in-flight requests up to 10 seconds. It keeps an idle keep-alive connection open
+for 95 seconds, longer than Cloudflare Tunnel's 90, so the tunnel never sends a
+request on a connection the API is closing (`apps/api/src/main.ts`).
 
 `PgClientLive` bounds the wait for a pooled connection and has PostgreSQL limit
 every statement (`DATABASE_STATEMENT_TIMEOUT_MS`), every lock wait, and every
@@ -631,7 +637,8 @@ Module mocking fails lint.
   role tests create. `migrate.postgres.ts` reads the tables it expects from the
   latest migration's snapshot. Replacing users then breaks only users' own
   tests, `app.test.ts`, the smoke scripts, `once.test.ts` if the new jobs fail
-  differently, and the CLI's `main.test.ts`, which runs `users` commands.
+  differently, the CLI's `main.test.ts`, which runs `users` commands, and the
+  web app's `src/test/api-client.test.ts`, which lists users through the client.
 
 ## Public imports
 

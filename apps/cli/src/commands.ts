@@ -10,10 +10,10 @@ const cli = Command.make("node-effect").pipe(
 );
 
 // --help and --version, and none of effect/cli's other global flags:
-// LOG_LEVEL sets the level, as for every entry point, where --log-level would
-// set it inside the command only, never for its failure report; no shell has a
-// node-effect command for --completions to complete; and a command takes its
-// input as flags and arguments, never through --wizard's prompts.
+// LOG_LEVEL sets the level, as for every Node entry point, where --log-level
+// would set it inside the command only, never for its failure report; no shell
+// has a node-effect command for --completions to complete; and a command takes
+// its input as flags and arguments, never through --wizard's prompts.
 const CliConfigLive = CliConfig.layer({
   builtIns: [GlobalFlag.Help, GlobalFlag.Version],
 });

@@ -36,9 +36,9 @@ const jsonLine = Logger.make((options) => {
 // exporter added later shows each line as an event on its span. An event
 // carries the cause its line logged, which the app reduces before logging;
 // what an exporter must still redact, span exits and URLs, is in the README's
-// Logs section. The entry points turn off runMain's own reporting, and nothing
-// outside this layer logs JSON, so an invalid LOG_LEVEL is reported here
-// before the layer fails.
+// Logs section. The Node entry points turn off runMain's own reporting, and
+// nothing outside this layer logs JSON, so an invalid LOG_LEVEL is reported
+// here before the layer fails.
 const loggingWith = (jsonLogger: Logger.Logger<unknown, void>) => {
   const loggers = Logger.layer([jsonLogger, Logger.tracerLogger]);
 
@@ -54,7 +54,8 @@ const loggingWith = (jsonLogger: Logger.Logger<unknown, void>) => {
   );
 };
 
-// Every entry point's logging but the CLI's: JSON lines on standard output.
+// Every Node entry point's logging but the CLI's: JSON lines on standard
+// output.
 const LoggingLive = loggingWith(Logger.withConsoleLog(jsonLine));
 
 // The CLI's: the same lines on standard error, because its standard output

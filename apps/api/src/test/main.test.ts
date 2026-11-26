@@ -140,4 +140,38 @@ describe("apps/api/src/main.ts", () => {
 
     assert.include(lines[0]?.cause, "API_PORT");
   });
+
+  it("reports a DATABASE_URL it cannot parse by safe diagnostics, and exits 1", () => {
+    // PgClient.make parses the URL while the services are built, so the API
+    // does not start, and no repository turns the SqlError into a persistence
+    // failure. The password must not reach the log.
+    const { status, stdout, stderr } = spawnSync(process.execPath, [mainPath], {
+      env: {
+        ...apiEnv,
+        DATABASE_URL: "postgresql://app:SECRET_SENTINEL@[bad/app",
+      },
+      encoding: "utf8",
+    });
+
+    const lines = stdout
+      .trimEnd()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    assert.strictEqual(status, 1);
+    assert.strictEqual(stderr, "");
+
+    assert.deepStrictEqual(
+      lines.map((line) => [line.message, line.level]),
+      [["API failed", "ERROR"]],
+    );
+
+    assert.include(
+      lines[0]?.cause,
+      '"diagnostics":{"reason":"ConnectionError","code":"ERR_INVALID_URL"}',
+    );
+
+    assert.notInclude(stdout, "SECRET_SENTINEL");
+    assert.notInclude(stdout, "    at ");
+  });
 });

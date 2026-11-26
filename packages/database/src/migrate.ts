@@ -1,15 +1,13 @@
 import { join } from "node:path";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { migrate } from "drizzle-orm/effect-postgres/migrator";
 import { Effect, Layer } from "effect";
-import { SqlError } from "effect/sql";
 
 import { reportFailure } from "@node-effect/application";
 import { AppConfig, LoggingLive, runtimeRoleConfig } from "@node-effect/config";
 
-import { diagnosticsFromCause } from "./error-diagnostics.ts";
+import { databaseFailureRedaction } from "./error-diagnostics.ts";
 import { Database, DatabaseLive, MigrationPgClientLive } from "./postgres.ts";
 import { checkRuntimeRole, provisionRuntimeRole } from "./runtime-role.ts";
 
@@ -27,23 +25,14 @@ const migrateDatabase = (migrationsSchema = drizzleKitMigrationsSchema) =>
     migrate(database, { migrationsFolder, migrationsSchema, migrationsTable }),
   );
 
-const isDatabaseFailure = (
-  error: unknown,
-): error is EffectDrizzleQueryError | SqlError.SqlError =>
-  error instanceof EffectDrizzleQueryError || SqlError.isSqlError(error);
-
-const databaseFailureReport = (
-  error: EffectDrizzleQueryError | SqlError.SqlError,
-) => ({ _tag: error._tag, diagnostics: diagnosticsFromCause(error) });
-
 // Database causes can carry SQL and stored values, so they are reported by
 // their safe diagnostics, also when one arrives as a defect because a
 // finalizer died after the migration failed. Other failures, such as missing
 // configuration, keep their details.
-const reportMigrationFailure = reportFailure("Database migration failed", {
-  isSensitive: isDatabaseFailure,
-  report: databaseFailureReport,
-});
+const reportMigrationFailure = reportFailure(
+  "Database migration failed",
+  databaseFailureRedaction,
+);
 
 const MigrationDatabaseLive = DatabaseLive.pipe(
   Layer.provideMerge(MigrationPgClientLive),

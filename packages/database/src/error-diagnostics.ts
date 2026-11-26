@@ -65,4 +65,23 @@ const diagnosticsFromCause = (cause: unknown) => {
   return { reason, code };
 };
 
-export { diagnosticsFromCause, findSqlError };
+const isDatabaseFailure = (
+  error: unknown,
+): error is EffectDrizzleQueryError | SqlError.SqlError =>
+  error instanceof EffectDrizzleQueryError || SqlError.isSqlError(error);
+
+const databaseFailureReport = (
+  error: EffectDrizzleQueryError | SqlError.SqlError,
+) => ({ _tag: error._tag, diagnostics: diagnosticsFromCause(error) });
+
+// reportFailure's redaction for a raw database error, one no repository turned
+// into a persistence failure: what `migrate` fails with, and the SqlError
+// PgClientLive fails with while an app's services are built, when DATABASE_URL
+// does not parse. Its message and causes can carry SQL, stored values or the
+// URL with its password, so it is reported by its safe diagnostics.
+const databaseFailureRedaction = {
+  isSensitive: isDatabaseFailure,
+  report: databaseFailureReport,
+};
+
+export { databaseFailureRedaction, diagnosticsFromCause, findSqlError };
