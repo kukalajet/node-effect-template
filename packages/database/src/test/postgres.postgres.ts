@@ -1,6 +1,15 @@
 import { assert, describe, it } from "@effect/vitest";
 import { sql } from "drizzle-orm";
-import { Config, Deferred, Duration, Effect, Fiber, Layer } from "effect";
+import {
+  Cause,
+  Config,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+} from "effect";
 import { SqlClient } from "effect/sql";
 
 import { diagnosticsFromCause } from "../error-diagnostics.ts";
@@ -18,6 +27,12 @@ const maxConnections = 10;
 
 // The pool test waits out PgClientLive's 5 second acquire timeout.
 const acquireTestTimeoutMs = 20_000;
+
+// The idle transaction test lowers its transaction's idle limit from
+// PgClientLive's 30 seconds to this, then idles five times as long, so
+// PostgreSQL has ended the session well before the next statement.
+const idleLimitMs = 200;
+const idleWaitMs = 1_000;
 
 // The test database, with `databaseStatementTimeoutMs` as the statement
 // timeout.
@@ -85,6 +100,53 @@ describe("PgClientLive", () => {
           DatabaseLive.pipe(
             Layer.provide(PgClientLive),
             Layer.provide(appConfigWith(100)),
+          ),
+        ),
+      ),
+  );
+
+  it.live(
+    "fails a transaction left idle past its limit with SQLSTATE 25P03, not a defect",
+    () =>
+      Effect.gen(function* () {
+        const database = yield* Database;
+
+        const exit = yield* database
+          .transaction((tx) =>
+            Effect.gen(function* () {
+              yield* tx.execute(sql`
+                select set_config(
+                  'idle_in_transaction_session_timeout',
+                  ${String(idleLimitMs)},
+                  true
+                )
+              `);
+
+              yield* Effect.sleep(Duration.millis(idleWaitMs));
+              yield* tx.execute(sql`select 1`);
+            }),
+          )
+          .pipe(Effect.exit);
+
+        // The driver skips the ROLLBACK on a session the server ended. One that
+        // failed would turn the failure into a defect, which a repository
+        // passes on instead of mapping it to a persistence failure, and the API
+        // would answer 500 INTERNAL_ERROR.
+        assert(Exit.isFailure(exit));
+        assert.isFalse(exit.cause.reasons.some(Cause.isDieReason));
+
+        assert.deepStrictEqual(diagnosticsFromCause(Cause.squash(exit.cause)), {
+          reason: "UnknownError",
+          code: "25P03",
+        });
+
+        // The pool replaces the ended session.
+        yield* database.execute(sql`select 1`);
+      }).pipe(
+        Effect.provide(
+          DatabaseLive.pipe(
+            Layer.provide(PgClientLive),
+            Layer.provide(appConfigWith(10_000)),
           ),
         ),
       ),

@@ -140,12 +140,10 @@ to 5 seconds more for the server to confirm it cancelled the query, so a request
 already sent on an open connection to a server that stopped answering fails
 after 22 seconds by default, or 10 for readiness. That connection is then
 dropped, and a request that has to open a new one fails within 5 seconds, when
-connecting gives up. A statement, lock or pool timeout, or a call that gives up,
-is a failed database operation: `500 DATABASE_ERROR`, or `503` for readiness,
-logged with its safe diagnostics. A session ended for idling inside a
-transaction takes its connection with it, so that transaction fails with a
-defect instead, which the API answers with `500 INTERNAL_ERROR` and the worker
-with a restart (see `packages/database/src/postgres.ts`).
+connecting gives up. A statement, lock or pool timeout, a session ended for
+idling inside a transaction (25P03), or a call that gives up, is a failed
+database operation: `500 DATABASE_ERROR`, or `503` for readiness, logged with
+its safe diagnostics.
 
 `DATABASE_STATEMENT_TIMEOUT_MS` accepts 1 to 2147483647, PostgreSQL's limit.
 Below 8000, a statement waiting for a lock is cancelled as a statement timeout

@@ -29,10 +29,11 @@ const lockTimeoutMs = 8_000;
 // PostgreSQL ends a session that stays idle inside an open transaction this
 // long. The statements of one transaction here follow each other within
 // milliseconds, so only a transaction a fiber abandoned gets this far, and
-// ending it releases the locks that would block migrations and vacuum. Its
-// connection is gone with it, so the transaction's ROLLBACK fails too and the
-// transaction dies with a defect rather than a persistence failure: the worker
-// logs it and restarts, and the API answers 500 without DATABASE_ERROR.
+// ending it releases the locks that would block migrations and vacuum. The
+// transaction's next statement then fails with SQLSTATE 25P03, and the driver
+// skips the ROLLBACK on a session the server ended, so this is an ordinary
+// persistence failure: the API answers 500 DATABASE_ERROR, and the worker logs
+// it and restarts.
 const idleInTransactionSessionTimeoutMs = 30_000;
 
 // PostgreSQL enforces the limits above, so none of them fires when the server

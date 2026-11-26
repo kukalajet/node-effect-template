@@ -74,9 +74,10 @@ describe("migration failure reporting", () => {
       Effect.gen(function* () {
         const error = failedStatement();
 
-        // Like drizzle's migration transaction when the connection is lost:
-        // its ROLLBACK dies, and Effect reports the statement's failure as a
-        // defect too.
+        // A ROLLBACK whose connection drops while it runs dies, and Effect then
+        // reports the statement's failure as a defect too. The driver skips
+        // the ROLLBACK on a connection that was lost before it, so this is
+        // rare, but the reporter must still redact both.
         const { exit, output, lineCount } = yield* runMigration(
           Effect.fail(error).pipe(
             Effect.onExit(() =>

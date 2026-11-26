@@ -8,9 +8,8 @@ import { fileURLToPath } from "node:url";
 import { assert, describe, it } from "@effect/vitest";
 
 // main.ts alone turns off Effect's HTTP logger and runMain's own reporting.
-// With either back on, the process logs raw causes, query strings or every
-// health probe while each module's tests still pass, so these run main.ts as
-// the process it is.
+// With either back on, the process logs raw causes or every health probe while
+// each module's tests still pass, so these run main.ts as the process it is.
 const mainPath = fileURLToPath(new URL("../main.ts", import.meta.url));
 
 // Only these variables, so neither the shell's LOG_LEVEL nor .env changes
@@ -100,7 +99,7 @@ describe("apps/api/src/main.ts", () => {
     assert.deepStrictEqual(api.errors, []);
 
     // Effect's logger would add a line for each request, the probe included,
-    // and a 404's cause, which repeats the query string.
+    // and log the 404's cause.
     assert.deepStrictEqual(
       lines.map((line) => [
         String(line.message).replace(listeningPattern, "Listening on"),
@@ -115,6 +114,8 @@ describe("apps/api/src/main.ts", () => {
       ],
     );
 
+    // The access log's own path handling keeps the query string out of every
+    // line.
     assert.notInclude(api.lines.join("\n"), "QUERY_SENTINEL");
   });
 

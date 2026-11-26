@@ -63,9 +63,9 @@ const outcomeOf = <E>(
 };
 
 // The cause can carry a persistence failure's SQL, parameters and stored
-// values, also as a defect, so those are reduced to their safe report. A
-// client error's cause, such as RouteNotFound, repeats the URL with its query
-// string, so only server errors log one.
+// values, also as a defect, so those are reduced to their safe report. Only
+// server errors log one: a 4xx is the client's doing, not a fault of the
+// server, and clients and scanners cause them all day.
 const serverErrorCause = (outcome: Outcome) => {
   if (!isServerError(outcome.response.status)) return [];
 

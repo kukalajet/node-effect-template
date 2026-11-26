@@ -391,7 +391,7 @@ HTTP handlers log a persistence failure's report as log annotations, and keep
 the response generic. The API's access log (`apps/api/src/access-log.ts`)
 replaces Effect's built-in HTTP logger, which logs each response's raw cause: it
 logs a 5xx response's cause with `redactPersistenceFailures`, and no cause for a
-4xx, whose cause can repeat the URL with its query string.
+4xx, which is the client's doing, not a fault of the server.
 
 The worker reports failures at its outer boundary, after configuration and
 persistence scopes finish. It logs a copy of the cause with every persistence
@@ -419,9 +419,8 @@ reports its own failure, an invalid `LOG_LEVEL`, because nothing outside it can.
 `reportFailure(message, { isSensitive, report })` also reduces what
 `isSensitive` accepts. The migrator fails with raw database errors rather than
 persistence failures, so a database error is logged with its tag and
-diagnostics, including one that arrives as a defect because ROLLBACK died on a
-lost connection, while other failures, such as missing configuration, keep their
-details.
+diagnostics, also one that arrives as a defect because a finalizer died, while
+other failures, such as missing configuration, keep their details.
 
 ## Process lifecycle
 
@@ -452,11 +451,10 @@ the server stops answering. A repository therefore bounds each call itself:
 `databaseCalls` requires a timeout, and `repositoryCalls` passes
 `databaseCallTimeout` for the configured statement timeout, a little longer than
 the pool wait and the statement together. A call that runs out is reported as a
-`TimeoutError`. Each surfaces as an ordinary persistence failure. The one
-exception is a session PostgreSQL ends for idling inside a transaction: its
-connection goes with it, so the transaction's rollback fails and the transaction
-dies with a defect. `packages/database/src/postgres.ts` gives the reason for
-each value.
+`TimeoutError`. Each surfaces as an ordinary persistence failure. So does a
+session PostgreSQL ends for idling inside a transaction (SQLSTATE 25P03),
+because the driver then skips the transaction's rollback.
+`packages/database/src/postgres.ts` gives the reason for each value.
 
 Both worker entry points hand the job table, `workerJobs` in
 `jobs/worker-jobs.ts`, to the job runner in `job-runner.ts`. The persistent

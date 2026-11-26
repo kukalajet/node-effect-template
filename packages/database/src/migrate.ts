@@ -37,9 +37,9 @@ const databaseFailureReport = (
 ) => ({ _tag: error._tag, diagnostics: diagnosticsFromCause(error) });
 
 // Database causes can carry SQL and stored values, so they are reported by
-// their safe diagnostics, also when one arrives as a defect: a migration whose
-// connection drops fails its statement and then dies on ROLLBACK. Other
-// failures, such as missing configuration, keep their details.
+// their safe diagnostics, also when one arrives as a defect because a
+// finalizer died after the migration failed. Other failures, such as missing
+// configuration, keep their details.
 const reportMigrationFailure = reportFailure("Database migration failed", {
   isSensitive: isDatabaseFailure,
   report: databaseFailureReport,
