@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 
+import { Api } from "@node-effect/api-contract";
 import {
   UserRepository,
   UserPersistenceFailure,
@@ -12,7 +13,6 @@ import {
   UserNotFound,
 } from "@node-effect/domain";
 
-import { Api } from "../../api-contract.ts";
 import { serveGroup } from "../../test/group-server.fixtures.ts";
 import { UserHandlers } from "../routes.ts";
 

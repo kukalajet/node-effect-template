@@ -24,9 +24,11 @@ Lint (`.oxlintrc.json`) also requires:
 - No module mocking: replace a service with `Layer.succeed` or `Layer.mock`.
 - No `console`, `process.env` or `Effect.run*` in `apps/` or `packages/` outside
   tests: log with Effect, read `AppConfig`, and run effects only with
-  `NodeRuntime.runMain` in an entry point, which provides `LoggingLive` from
+  `NodeRuntime.runMain` in a Node entry point, which provides `LoggingLive` from
   `@node-effect/config` (JSON lines at `LOG_LEVEL`), or, in the CLI,
-  `StderrLoggingLive`, which writes them to standard error.
+  `StderrLoggingLive`, which writes them to standard error. The web app's
+  browser entry runs with `BrowserRuntime.runMain` instead, keeps Effect's
+  default logger, and has neither `process.env` nor `AppConfig`.
 - No `@node-effect/database` or `effect/sql` imports in any folder under
   `apps/*/src/`, tests included. Provide adapters in the composition roots
   directly in `src/` (`request-services-live.ts`, `worker-runtime.ts`,
@@ -45,7 +47,9 @@ allowed.
 `pnpm check` must pass before a change is done; `pnpm fix` formats and
 lint-fixes. `pnpm check` includes `pnpm db:verify`, so a schema change needs its
 generated migration (`pnpm db:generate`). Never edit the migrations in
-`drizzle/` or the vendored `tools/oxlint/anti-slop/`.
+`drizzle/` or the vendored `tools/oxlint/anti-slop/`, and replace the vendored
+`@effect/ui` build in `apps/web/vendor/` only as README.md's "Updating Effect
+UI" says.
 
 `pnpm check` type-checks with `@effect/tsgo`'s build of `tsc`, so Effect's
 diagnostics fail it like type errors: an Effect that is never run, `yield` where

@@ -1,8 +1,10 @@
 // Renovate opens pull requests for every pinned version: npm packages, the
 // pnpm catalog and overrides, Node and pnpm, Docker images by tag and digest,
 // GitHub Actions by commit SHA, and the tools pinned in scripts and workflows.
-// README.md ("Dependency updates") lists the groups, what the three-day wait
-// does not cover, and what is not managed.
+// It skips @effect/ui, a snapshot tarball in apps/web/vendor that is updated by
+// hand (README.md, "Updating Effect UI"). README.md ("Dependency updates")
+// lists the groups, what the three-day wait does not cover, and what is not
+// managed.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   // config:recommended plus digest pins for images and actions, weekly lock

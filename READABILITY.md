@@ -187,9 +187,9 @@ an outer one with the same name.
 A generator body should read as a list of steps. Decoder construction, error
 mapping, and result conversion are plumbing; when they take three lines inside
 the body, the step they serve gets lost. Hoist decoders to module-level
-constants, as `packages/database/src/users/user-repository-live.ts` does with
-`decodeUserRow` and `decodeUserRows`, and wrap repeated pipelines in a named
-helper, as `apps/api/src/request-body.ts` does with `jsonBody`.
+constants, as `apps/web/src/users/users-page.ts` does with `decodeNewUser`, and
+wrap repeated pipelines in a named helper, as `apps/api/src/request-body.ts`
+does with `jsonBody`.
 
 <!-- oxfmt-ignore -->
 ```ts
@@ -236,8 +236,8 @@ Good examples already in the codebase:
 
 - `packages/database/src/users/schema.ts` explains why the insert schema refines
   `id` with a function: a plain schema would make the generated id required.
-- `apps/api/src/users/routes.ts` derives the 4 KiB body limit from the longest
-  valid email and display name.
+- `packages/api-contract/src/users/api-contract.ts` derives the 4 KiB body limit
+  from the longest valid email and display name.
 - `apps/worker/src/job-runner.ts` says what the first failure does and who
   restarts the worker afterwards.
 

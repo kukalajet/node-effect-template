@@ -1,12 +1,14 @@
 import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
+import {
+  Api,
+  LivenessResponse,
+  ReadinessResponse,
+} from "@node-effect/api-contract";
 import { DatabaseHealth } from "@node-effect/application";
 
-import { Api } from "../api-contract.ts";
 import { healthFailure } from "../http-errors.ts";
-
-import { LivenessResponse, ReadinessResponse } from "./api-contract.ts";
 
 const live = Effect.succeed(LivenessResponse.make({ status: "ok" }));
 

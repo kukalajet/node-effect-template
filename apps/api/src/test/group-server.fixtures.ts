@@ -8,7 +8,7 @@ import {
   HttpApiSchema,
 } from "effect/http-api";
 
-import { Api } from "../api-contract.ts";
+import { Api } from "@node-effect/api-contract";
 
 // The route the router matched for a request: its method and path pattern.
 type MatchedRoute = { readonly method: string; readonly path: string };

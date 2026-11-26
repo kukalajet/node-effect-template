@@ -8,14 +8,14 @@ import {
 
 import { CreateUserSchema, UserId, UserSchema } from "@node-effect/domain";
 
-import { RequestValidation } from "../api-middleware.ts";
 import {
   DatabaseErrorResponse,
   PayloadTooLargeResponse,
   publicError,
   UnsupportedMediaTypeResponse,
 } from "../api-schemas.ts";
-import { withJsonBodyLimit } from "../request-body.ts";
+import { withJsonBodyLimit } from "../json-body-limit.ts";
+import { RequestValidation } from "../request-validation.ts";
 
 const UserParams = Schema.Struct({ id: UserId });
 
@@ -62,8 +62,9 @@ const UsersApi = HttpApiGroup.make("users")
       success: UserSchema,
       error: [UserNotFoundResponse.schema, DatabaseErrorResponse.schema],
     }),
-    // The handler reads the body itself, at most the bytes withJsonBodyLimit
-    // sets below, and decodes it with this payload (see request-body.ts).
+    // The API's handler reads the body itself, at most the bytes
+    // withJsonBodyLimit sets below, and decodes it with this payload (see
+    // apps/api/src/request-body.ts).
     HttpApiEndpoint.post("create", "/users", {
       payload: CreateUserSchema,
       success: UserSchema.pipe(HttpApiSchema.status(201)),

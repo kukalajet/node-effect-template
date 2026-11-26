@@ -90,8 +90,8 @@ curl --fail --silent --show-error "http://$address/health/ready"
 # The access log has a line per request, with the trace id and Cloudflare's ray
 # id but not the query string, and none for the passing health probes above,
 # smoke-api.ts's and the Compose healthcheck's. Effect's own HTTP logger, if it
-# came back, would log those probes under http.url and a 404's query string in
-# its cause.
+# came back, would log those probes under http.url and every response with
+# http.status.
 curl --fail --silent --show-error --output /dev/null \
   --header 'cf-ray: smoke-ray-0000-SMK' "http://$address/users?limit=1&smoke=QUERY_SENTINEL"
 status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \

@@ -1,0 +1,13 @@
+{
+  "name": "@node-effect/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@effect/platform-browser": "catalog:",
+    "@effect/ui": "file:./vendor/effect-ui-efdee07.tgz",
+    "@node-effect/api-contract": "workspace:*",
+    "@node-effect/domain": "workspace:*",
+    "effect": "catalog:"
+  }
+}

@@ -8,9 +8,8 @@ import { fileURLToPath } from "node:url";
 import { assert, describe, it } from "@effect/vitest";
 
 // main.ts alone turns off Effect's HTTP logger and runMain's own reporting.
-// With either back on, the process logs raw causes, query strings or every
-// health probe while each module's tests still pass, so these run main.ts as
-// the process it is.
+// With either back on, the process logs raw causes or every health probe while
+// each module's tests still pass, so these run main.ts as the process it is.
 const mainPath = fileURLToPath(new URL("../main.ts", import.meta.url));
 
 // Only these variables, so neither the shell's LOG_LEVEL nor .env changes
@@ -100,7 +99,7 @@ describe("apps/api/src/main.ts", () => {
     assert.deepStrictEqual(api.errors, []);
 
     // Effect's logger would add a line for each request, the probe included,
-    // and a 404's cause, which repeats the query string.
+    // and log the 404's cause.
     assert.deepStrictEqual(
       lines.map((line) => [
         String(line.message).replace(listeningPattern, "Listening on"),
@@ -115,6 +114,8 @@ describe("apps/api/src/main.ts", () => {
       ],
     );
 
+    // The access log's own path handling keeps the query string out of every
+    // line.
     assert.notInclude(api.lines.join("\n"), "QUERY_SENTINEL");
   });
 
@@ -138,5 +139,39 @@ describe("apps/api/src/main.ts", () => {
     );
 
     assert.include(lines[0]?.cause, "API_PORT");
+  });
+
+  it("reports a DATABASE_URL it cannot parse by safe diagnostics, and exits 1", () => {
+    // PgClient.make parses the URL while the services are built, so the API
+    // does not start, and no repository turns the SqlError into a persistence
+    // failure. The password must not reach the log.
+    const { status, stdout, stderr } = spawnSync(process.execPath, [mainPath], {
+      env: {
+        ...apiEnv,
+        DATABASE_URL: "postgresql://app:SECRET_SENTINEL@[bad/app",
+      },
+      encoding: "utf8",
+    });
+
+    const lines = stdout
+      .trimEnd()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    assert.strictEqual(status, 1);
+    assert.strictEqual(stderr, "");
+
+    assert.deepStrictEqual(
+      lines.map((line) => [line.message, line.level]),
+      [["API failed", "ERROR"]],
+    );
+
+    assert.include(
+      lines[0]?.cause,
+      '"diagnostics":{"reason":"ConnectionError","code":"ERR_INVALID_URL"}',
+    );
+
+    assert.notInclude(stdout, "SECRET_SENTINEL");
+    assert.notInclude(stdout, "    at ");
   });
 });

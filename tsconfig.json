@@ -38,12 +38,16 @@
           "missingStarInYieldEffectGen": "error",
           "floatingEffectInVitest": "error",
           // Effect 4 marks effect/cli, effect/http, effect/http-api,
-          // effect/sql, effect/testing, @effect/sql-pg, @effect/platform-node
-          // and @effect/vitest unstable, among others. The template is built
-          // on them, so this rule would flag hundreds of places, every `it` in
-          // the tests among them.
+          // effect/reactivity, effect/sql, effect/testing, @effect/sql-pg,
+          // @effect/platform-node, @effect/platform-browser and @effect/vitest
+          // unstable, among others. The template is built on them, so this rule
+          // would flag hundreds of places, every `it` in the tests among them.
           "unstableApiUsage": "off"
         },
+        // @effect/ui marks every API experimental while it is in public
+        // preview, and the web app is built on it. Any other experimental API
+        // still fails the check.
+        "allowedExperimentalApis": ["@effect/ui"],
         // Suggestions never fail the type check; left in, they would print on
         // every passing run.
         "includeSuggestionsInTsc": false
@@ -58,6 +62,7 @@
     "vite.config.ts"
   ],
   // Code written to fail the type check, which scripts/typecheck.test.ts
-  // checks on its own.
-  "exclude": ["**/node_modules", "scripts/fixtures"]
+  // checks on its own, and the web app's browser code, which
+  // apps/web/tsconfig.json checks with the DOM's types instead of Node's.
+  "exclude": ["**/node_modules", "scripts/fixtures", "apps/web/src"]
 }

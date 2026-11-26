@@ -15,6 +15,9 @@ API routes -----------+
 worker jobs ----------+--> application --> domain
 CLI commands ---------+
 
+API routes ---------------> api-contract --> domain
+web app -----------------> api-contract + domain
+
 database adapters --------> application + domain
 database infrastructure --> config
 
@@ -28,10 +31,16 @@ The rules behind the diagram are more important than the exact folders:
 - `application` depends on `domain`. It owns use cases and contracts (ports)
   such as `UserRepository`, and the shared `PersistenceFailure` error fields,
   but no PostgreSQL, HTTP, or Node runtime code.
+- `api-contract` depends on `domain`. It owns the HTTP contract: every
+  endpoint's method, path, params, payload, success and error schemas, the
+  public error envelope, and what the server must implement for them, the
+  `RequestValidation` middleware and the JSON body limit. It holds no handlers
+  and no server code, so a client derives its calls from the same contract the
+  API serves.
 - `database` is an outbound adapter. It depends on application contracts and
   domain types, and owns PostgreSQL, Drizzle, tables, row mappings, live
   repository implementations, and the migration entry point.
-- `config` owns validated environment configuration and the entry points'
+- `config` owns validated environment configuration and the Node entry points'
   logging, which `LOG_LEVEL` configures: `LoggingLive`, JSON lines on standard
   output, and `StderrLoggingLive`, the CLI's, the same lines on standard error.
   It lives here because every executable, `migrate` included, already depends on
@@ -45,6 +54,11 @@ The rules behind the diagram are more important than the exact folders:
   it needs, because its job is to select implementations, assemble the layer
   graph, provide `LoggingLive` (the CLI `StderrLoggingLive`), and launch the
   runtime.
+- The web app (`apps/web`) runs in a browser and reaches the server only over
+  HTTP: it depends on `api-contract`, whose client it calls, and on `domain`,
+  whose schemas check its form, never on `application`, `database` or `config`.
+  Everything it imports is bundled by Vite, so its manifest lists them as
+  `devDependencies`, and the production image installs none of them.
 
 pnpm enforces part of this. Each workspace package lists its own runtime
 dependencies in its `package.json` (`catalog:` versions and `workspace:*`
@@ -54,12 +68,12 @@ scripts) still resolve from every package during development, but the production
 image installs only each package's declared dependencies. Declare every runtime
 import in the manifest of the package that imports it.
 
-Lint enforces the part pnpm cannot. Every app depends on `@node-effect/database`
-for its composition root, so pnpm lets routes, jobs and commands import it too.
-Lint rejects imports of `@node-effect/database` and `effect/sql` in every folder
-under `apps/*/src/`, tests included; only the files directly in `src/` may
-import them. A composition root placed inside a feature folder needs its own
-override in `.oxlintrc.json`.
+Lint enforces the part pnpm cannot. The API, the worker and the CLI depend on
+`@node-effect/database` for their composition roots, so pnpm lets routes, jobs
+and commands import it too. Lint rejects imports of `@node-effect/database` and
+`effect/sql` in every folder under `apps/*/src/`, tests included; only the files
+directly in `src/` may import them. A composition root placed inside a feature
+folder needs its own override in `.oxlintrc.json`.
 
 ## Layout
 
@@ -70,17 +84,13 @@ apps/
     request-services-live.ts      # adapters behind the ports routes use
     access-log.ts                 # one line per request, 5xx causes redacted
     app.ts                        # HttpApi routes, OpenAPI, Swagger UI, 404 and 500 envelope
-    api-contract.ts               # root HttpApi: every group, OpenAPI metadata
-    api-schemas.ts                # public error envelope, shared responses
-    api-middleware.ts             # RequestValidation: schema errors to 400
+    api-middleware.ts             # RequestValidationLive: schema errors to 400
     request-body.ts               # size-limited JSON body reader
     http-errors.ts                # persistence failures to logged 500 or 503
     health/
-      api-contract.ts             # HttpApiGroup: endpoints and their schemas
       routes.ts                   # handlers
       test/routes.test.ts
     users/
-      api-contract.ts
       routes.ts
       test/routes.test.ts
     test/                         # composition, contract helper, error tests
@@ -104,11 +114,33 @@ apps/
       commands.ts                 # one group: users list, get and create
       test/commands.test.ts
     test/                         # process and failure reporting tests, runCommand fixture
+  web/
+    index.html                    # the page Vite serves and builds
+    vite.config.ts                # dev server and preview: /api forwarded to the API
+    tsconfig.json                 # the DOM's types for src, none of Node's
+    vendor/                       # the @effect/ui build that package.json installs
+    src/
+      main.ts                     # browser entry: mounts the page, provides the HTTP client
+      api-client.ts               # ApiClient: the client the contract derives
+      styles.css
+      test/                       # what the page says for each kind of failed call
+      users/
+        list-users.ts             # ListUsers query, and the rows it holds
+        users-page.ts             # the page, its form and the CreateUser Command
+        test/                     # story of its update, play of the whole page
 
 packages/
   domain/
     index.ts                      # public package API
     src/user.ts                   # domain values, models, and errors
+  api-contract/
+    index.ts
+    src/api-contract.ts           # root HttpApi: every group, OpenAPI metadata
+    src/api-schemas.ts            # public error envelope, shared responses
+    src/request-validation.ts     # RequestValidation: the middleware a group declares
+    src/json-body-limit.ts        # withJsonBodyLimit: a JSON endpoint's body limit
+    src/health/api-contract.ts    # HttpApiGroup: endpoints and their schemas
+    src/users/api-contract.ts
   application/
     index.ts
     src/database-health.ts        # readiness port: does the database answer
@@ -151,8 +183,10 @@ implementation belongs in `database`.
 
 Create a feature folder inside an existing app or package when the code has the
 same boundary and runtime dependencies as its neighbors. A new API feature
-normally starts at `apps/api/src/<feature>/` with an `api-contract.ts` and a
-`routes.ts`; it does not need a new workspace package.
+normally adds `packages/api-contract/src/<feature>/api-contract.ts` and
+`apps/api/src/<feature>/routes.ts`; it does not need a new workspace package.
+The contract is a package of its own because the API and the clients that call
+it both use it.
 
 Do not create a package merely because a file became long. First split the file
 by responsibility within its existing boundary. Conversely, do not put reusable
@@ -163,9 +197,9 @@ today; ownership, rather than line count, decides the location.
 
 | Code being added                                                           | Location                                                                                                 |
 | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Endpoint: method, path, params, payload, success and error schemas         | `apps/api/src/<feature>/api-contract.ts`, added to the root `api-contract.ts`                            |
+| Endpoint: method, path, params, payload, success and error schemas         | `packages/api-contract/src/<feature>/api-contract.ts`, added to the root `api-contract.ts` beside it     |
 | Handler: calling ports and mapping their errors to responses               | `apps/api/src/<feature>/routes.ts`, provided in `apps/api/src/app.ts`                                    |
-| Public error response or schema shared by API groups                       | `apps/api/src/api-schemas.ts`                                                                            |
+| Public error response or schema shared by API groups                       | `packages/api-contract/src/api-schemas.ts`                                                               |
 | Mapping a shared failure, such as a persistence failure, to HTTP           | `apps/api/src/http-errors.ts`                                                                            |
 | What the API logs for each request                                         | `apps/api/src/access-log.ts`                                                                             |
 | Log format, level, or another logger                                       | `packages/config/src/logging.ts`                                                                         |
@@ -183,6 +217,9 @@ today; ownership, rather than line count, decides the location.
 | Shared PostgreSQL client or Drizzle service                                | `packages/database/src/postgres.ts`                                                                      |
 | Environment variable parsing, validation, or defaults                      | `packages/config/src/`, plus `.env.example`, `docker-compose.yml` and `deploy/vps/`                      |
 | Production layer selection and process startup                             | the executable's composition root                                                                        |
+| A web page or component, with the Commands it runs                         | `apps/web/src/<feature>/`, one file per component                                                        |
+| A web query: data a component fetches from the API                         | `apps/web/src/<feature>/`, a `Query.Service` whose fetcher calls `ApiClient`                             |
+| Platform layers of the web app, such as the HTTP client                    | `apps/web/src/main.ts`; a component provides its own queries and Commands with `Component.provide`       |
 | A fake service for a test                                                  | beside the consuming test                                                                                |
 | Fixtures shared by several tests                                           | `*.fixtures.ts` in the `test/` folder                                                                    |
 
@@ -194,8 +231,8 @@ directly; a forwarding `UserService` adds no boundary.
 ## Effect services and layers
 
 The code uses Effect 4's stable module paths: `effect/cli`, `effect/http`,
-`effect/http-api`, `effect/process`, `effect/sql` and `effect/testing`, never
-`effect/unstable/*`.
+`effect/http-api`, `effect/process`, `effect/reactivity`, `effect/sql` and
+`effect/testing`, never `effect/unstable/*`.
 
 Keep the contract, implementation, composition, and test replacement separate:
 
@@ -235,10 +272,12 @@ Keep the contract, implementation, composition, and test replacement separate:
    `multipleEffectProvide` rule).
 
    Every entry point provides `LoggingLive`, or the CLI `StderrLoggingLive`,
-   last, outside its failure reporter, so the report is a JSON line too. Never
-   provide a logger or a log level inside the routes: HttpApi merges the context
-   its handlers were built with over each request's, so it would replace the
-   entry point's for those handlers.
+   last, outside its failure reporter, so the report is a JSON line too. The web
+   app's entry is the exception: in a browser there is no log stream to collect,
+   so it keeps Effect's default logger, which writes to the browser's console.
+   Never provide a logger or a log level inside the routes: HttpApi merges the
+   context its handlers were built with over each request's, so it would replace
+   the entry point's for those handlers.
 
 5. In a consumer test, replace the contract directly with `Layer.succeed` or
    `Layer.mock`. Route, job and command unit tests should not start PostgreSQL
@@ -263,12 +302,13 @@ available so a test can arrange and inspect rows.
 ## HTTP API contracts
 
 The API is schema-first. Each feature declares an `HttpApiGroup` in its
-`api-contract.ts`: every endpoint's method, path, params, payload, success
-schema with its status, and every error schema it can return. The root
-`api-contract.ts` combines the groups into one `HttpApi` with OpenAPI metadata.
-`routes.ts` implements the group with `HttpApiBuilder.group`, and `app.ts`
-serves the API with its OpenAPI document at `/openapi.json` and Swagger UI at
-`/docs`. `scripts/export-openapi.ts` prints the same document.
+`api-contract.ts` in `packages/api-contract`: every endpoint's method, path,
+params, payload, success schema with its status, and every error schema it can
+return. The root `api-contract.ts` there combines the groups into one `HttpApi`
+with OpenAPI metadata. The API's `routes.ts` implements the group with
+`HttpApiBuilder.group`, and `app.ts` serves the API with its OpenAPI document at
+`/openapi.json` and Swagger UI at `/docs`. `scripts/export-openapi.ts` prints
+the same document.
 
 Errors follow these conventions:
 
@@ -287,9 +327,10 @@ Errors follow these conventions:
   `payload` schema, its byte limit with `.pipe(withJsonBodyLimit(bytes))`, and
   `PayloadTooLargeResponse` and `UnsupportedMediaTypeResponse` among its errors,
   behind `RequestValidation`. Its handler is registered with
-  `.handleRaw(name, jsonBodyHandler(handler))`; both helpers come from
-  `request-body.ts`, and nothing else reads a body. `jsonBodyHandler` refuses a
-  request whose media type is not `application/json` before reading it
+  `.handleRaw(name, jsonBodyHandler(handler))`. `withJsonBodyLimit` comes from
+  `api-contract` and `jsonBodyHandler` from the API's `request-body.ts`, and
+  nothing else reads a body. `jsonBodyHandler` refuses a request whose media
+  type is not `application/json` before reading it
   (`415 UNSUPPORTED_MEDIA_TYPE`), because a browser can post `text/plain`, or a
   body with no content type, to another site without a CORS preflight. It then
   decodes the body with that payload schema, stops reading past the limit
@@ -321,8 +362,8 @@ Errors follow these conventions:
   `CreateUserSchema`, `UserSchema`) and live in `domain`.
 - HTTP schemas describe transport-only shapes such as path parameters, query
   strings, headers, responses, and error envelopes. They live in the feature's
-  `api-contract.ts`, or in `api-schemas.ts` when shared. Reuse domain schemas
-  inside them instead of duplicating business constraints.
+  `api-contract.ts` in `api-contract`, or in its `api-schemas.ts` when shared.
+  Reuse domain schemas inside them instead of duplicating business constraints.
 - Drizzle tables and generated select/insert row schemas describe persistence.
   They live in `database` and are not the public business model.
 - Configuration schemas describe environment input and live in `config`. A
@@ -373,7 +414,7 @@ HTTP handlers log a persistence failure's report as log annotations, and keep
 the response generic. The API's access log (`apps/api/src/access-log.ts`)
 replaces Effect's built-in HTTP logger, which logs each response's raw cause: it
 logs a 5xx response's cause with `redactPersistenceFailures`, and no cause for a
-4xx, whose cause can repeat the URL with its query string.
+4xx, which is the client's doing, not a fault of the server.
 
 The worker reports failures at its outer boundary, after configuration and
 persistence scopes finish. It logs a copy of the cause with every persistence
@@ -401,40 +442,48 @@ stays off, since no module test can see either setting. The worker's
 `src/test/main.test.ts` and `src/test/once.test.ts`, the CLI's
 `src/test/main.test.ts`, and the process tests in
 `packages/database/src/test/migrate.test.ts`, run the other entry points the
-same way, without PostgreSQL. They check that a failure, from configuration or
-from a database that refuses connections, is logged once, as JSON, with nothing
-else written, and that SIGTERM ends a polling pass or a command in flight with
-exit 130 and no log line. The CLI's also check that it logs on standard error,
-which leaves standard output to what a command prints, that `--help`,
-`--version` and invalid input need no configuration, and that a group run
-without a command needs configuration but no database. The reporters' own tests
-run them under a test logger. `LoggingLive` and `StderrLoggingLive` report their
-own failure, an invalid `LOG_LEVEL`, because nothing outside them can.
+same way, without PostgreSQL. They check that a failure, from configuration,
+from a `DATABASE_URL` that does not parse, or from a database that refuses
+connections, is logged once, as JSON, with nothing else written, and that
+SIGTERM ends a polling pass or a command in flight with exit 130 and no log
+line. The CLI's also check that it logs on standard error, which leaves standard
+output to what a command prints, that `--help`, `--version` and invalid input
+need no configuration, and that a group run without a command needs
+configuration but no database. The reporters' own tests run them under a test
+logger. `LoggingLive` and `StderrLoggingLive` report their own failure, an
+invalid `LOG_LEVEL`, because nothing outside them can.
 
-`migrate.ts` uses `reportFailure` too, with a redaction of its own:
+Every Node entry point also passes `reportFailure` a redaction,
+`databaseFailureRedaction` from `@node-effect/database`:
 `reportFailure(message, { isSensitive, report })` also reduces what
-`isSensitive` accepts. The migrator fails with raw database errors rather than
-persistence failures, so a database error is logged with its tag and
-diagnostics, including one that arrives as a defect because ROLLBACK died on a
-lost connection, while other failures, such as missing configuration, keep their
+`isSensitive` accepts, here a raw database error that no repository turned into
+a persistence failure. The migrator fails with raw database errors, and the API,
+the worker and the CLI fail with one while their services are built when
+`DATABASE_URL` does not parse, since `PgClient` parses it then. Such an error is
+logged with its tag and diagnostics, also one that arrives as a defect because a
+finalizer died, while other failures, such as missing configuration, keep their
 details.
 
 ## Process lifecycle
 
-Each entry point runs with `NodeRuntime.runMain` from `@effect/platform-node`.
-It exits 0 when the program completes, 1 when it fails, and 130 when SIGINT or
-SIGTERM interrupts it, after running every finalizer. Containers run `node` as
-PID 1, never `pnpm`, which does not pass signals on.
+Each Node entry point runs with `NodeRuntime.runMain` from
+`@effect/platform-node`. The web app's, `apps/web/src/main.ts`, runs in a
+browser with `BrowserRuntime.runMain` from `@effect/platform-browser`, which
+interrupts the app when the page is discarded. A Node entry point exits 0 when
+the program completes, 1 when it fails, and 130 when SIGINT or SIGTERM
+interrupts it, after running every finalizer. Containers run `node` as PID 1,
+never `pnpm`, which does not pass signals on.
 
 The API's PostgreSQL pool opens connections on demand, so unavailable PostgreSQL
-does not prevent the HTTP process from starting. `/health/live` checks only
-process liveness; `/health/ready` and its `/health` alias query the database
-with a timeout. Container health checks use liveness, so a database outage never
-restarts the API; deployment smoke checks and uptime monitoring use readiness.
-On shutdown the server stops accepting connections and gives in-flight requests
-up to 10 seconds. It keeps an idle keep-alive connection open for 95 seconds,
-longer than Cloudflare Tunnel's 90, so the tunnel never sends a request on a
-connection the API is closing (`apps/api/src/main.ts`).
+does not prevent the HTTP process from starting; a `DATABASE_URL` that does not
+parse does, because the client parses it when it is built. `/health/live` checks
+only process liveness; `/health/ready` and its `/health` alias query the
+database with a timeout. Container health checks use liveness, so a database
+outage never restarts the API; deployment smoke checks and uptime monitoring use
+readiness. On shutdown the server stops accepting connections and gives
+in-flight requests up to 10 seconds. It keeps an idle keep-alive connection open
+for 95 seconds, longer than Cloudflare Tunnel's 90, so the tunnel never sends a
+request on a connection the API is closing (`apps/api/src/main.ts`).
 
 `PgClientLive` bounds the wait for a pooled connection and has PostgreSQL limit
 every statement (`DATABASE_STATEMENT_TIMEOUT_MS`), every lock wait, and every
@@ -445,11 +494,10 @@ the server stops answering. A repository therefore bounds each call itself:
 `databaseCalls` requires a timeout, and `repositoryCalls` passes
 `databaseCallTimeout` for the configured statement timeout, a little longer than
 the pool wait and the statement together. A call that runs out is reported as a
-`TimeoutError`. Each surfaces as an ordinary persistence failure. The one
-exception is a session PostgreSQL ends for idling inside a transaction: its
-connection goes with it, so the transaction's rollback fails and the transaction
-dies with a defect. `packages/database/src/postgres.ts` gives the reason for
-each value.
+`TimeoutError`. Each surfaces as an ordinary persistence failure. So does a
+session PostgreSQL ends for idling inside a transaction (SQLSTATE 25P03),
+because the driver then skips the transaction's rollback.
+`packages/database/src/postgres.ts` gives the reason for each value.
 
 Both worker entry points hand the job table, `workerJobs` in
 `jobs/worker-jobs.ts`, to the job runner in `job-runner.ts`. The persistent
@@ -549,6 +597,18 @@ Module mocking fails lint.
   prompt, and returns how it ended and what it printed, without colors, on
   standard output and standard error. The failure reporter's tests run probe
   commands of their own.
+- **Web tests** use Effect UI's test kits, which need no browser. A story
+  (`*.story.test.ts`) sends messages to a component's `update` and resolves its
+  Commands by hand. A play (`*.play.test.ts`) mounts the page on Effect UI's
+  test host and drives it as a user does, with its real queries and Commands
+  over a fake `HttpClient` that serves the API from memory, so the contract's
+  encoding is tested too. `TestClock` holds back the fake API's answer, so a
+  test sees what the page shows before the answer and after it. A clock step
+  runs what it wakes, but the client reads an answer's body through a Promise,
+  which only a play step waits for, so a play step goes between two clock steps.
+  Commands that act on elements, such as `HtmlCommand.focus`, need `Html.Host`,
+  which a play fakes with `Layer.succeed`, as `users-page.play.test.ts` does to
+  record what the page focuses.
 - **Database adapter unit tests** run the real Drizzle queries, row decoding,
   and error mapping against a fake `PgClient` (`pgClientLayer` and its
   connections in `packages/database/src/test/pg-client.ts`).
@@ -569,15 +629,16 @@ Module mocking fails lint.
   them, for example that a secret never reaches a log line. A test of the lines
   production writes provides `LoggingLive` with a `TestConsole`, as
   `access-log.test.ts` does. Outside tests, lint rejects Effect's
-  `Logger.console*` loggers: entry points provide `LoggingLive`, or the CLI
-  `StderrLoggingLive`.
+  `Logger.console*` loggers: Node entry points provide `LoggingLive`, or the CLI
+  `StderrLoggingLive`, and the web app keeps Effect's default logger.
 - **Tests of generic code** use probes of their own rather than the users
   example: a `ProbeFailure` built with `persistenceFailureFields`, which
   `application` exports for them, or the `probe_items` table that the runtime
   role tests create. `migrate.postgres.ts` reads the tables it expects from the
   latest migration's snapshot. Replacing users then breaks only users' own
   tests, `app.test.ts`, the smoke scripts, `once.test.ts` if the new jobs fail
-  differently, and the CLI's `main.test.ts`, which runs `users` commands.
+  differently, the CLI's `main.test.ts`, which runs `users` commands, and the
+  web app's `src/test/api-client.test.ts`, which lists users through the client.
 
 ## Public imports
 

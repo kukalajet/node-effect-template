@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // The page runs in a browser: the DOM's types, and none of Node's.
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "types": []
+  },
+  "include": ["src"],
+  // Replaces the root's list, which leaves src out of the root project.
+  "exclude": ["**/node_modules"]
+}

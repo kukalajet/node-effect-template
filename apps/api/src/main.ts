@@ -7,6 +7,7 @@ import { HttpRouter } from "effect/http";
 
 import { reportFailure } from "@node-effect/application";
 import { AppConfig, LoggingLive } from "@node-effect/config";
+import { databaseFailureRedaction } from "@node-effect/database";
 
 import { accessLog } from "./access-log.ts";
 import { ApiRoutes } from "./app.ts";
@@ -45,10 +46,12 @@ const ServerLive = HttpRouter.serve(
 ).pipe(Layer.provide(HttpServerLive), Layer.provide(AppConfig.layer));
 
 // reportFailure logs a failure to start or serve as JSON, inside
-// LoggingLive. runMain's own reporting stays off: it would log the raw cause
+// LoggingLive, with a raw database error reduced to its diagnostics: the
+// SqlError the services fail with while they are built, when DATABASE_URL does
+// not parse. runMain's own reporting stays off: it would log the raw cause
 // again, as text, outside LoggingLive. test/main.test.ts checks this too.
 const main = Layer.launch(ServerLive).pipe(
-  Effect.tapCause(reportFailure("API failed")),
+  Effect.tapCause(reportFailure("API failed", databaseFailureRedaction)),
   Effect.provide(LoggingLive),
 );
 

@@ -1,7 +1,7 @@
 # Node Effect backend template
 
-A reusable backend starter: an HTTP API, a worker and a CLI over PostgreSQL.
-These are the terms its code and documents use.
+A reusable backend starter: an HTTP API, a worker and a CLI over PostgreSQL, and
+a web app that calls the API. These are the terms its code and documents use.
 
 ## Language
 
@@ -52,3 +52,14 @@ _Avoid_: task, script
 
 **Command group**: The commands under one name, such as `users`; run without a
 command, it prints their help. _Avoid_: namespace
+
+### Web app
+
+**Pending user**: A user the web app has asked the API to create, shown in the
+list from the submit, once the list has loaded. It has no id or creation time
+yet. It leaves the list as soon as the API refuses it. If the API creates it, it
+stays until the list is fetched again, and the saved user takes its place if
+that fetch succeeds. _Avoid_: temporary user, fake user
+
+**Saved user**: A user as the API returned it, with the id and creation time the
+API gave it.

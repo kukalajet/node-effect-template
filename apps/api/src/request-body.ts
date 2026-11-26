@@ -4,15 +4,10 @@ import type { HttpApiEndpoint } from "effect/http-api";
 
 import {
   BadRequestResponse,
+  JsonBodyLimit,
   PayloadTooLargeResponse,
   UnsupportedMediaTypeResponse,
-} from "./api-schemas.ts";
-
-// The most bytes an endpoint's JSON body may have. `withJsonBodyLimit` sets it
-// on the endpoint's contract, and `jsonBody` reads it from there.
-class JsonBodyLimit extends Context.Service<JsonBodyLimit, number>()(
-  "@node-effect/api/JsonBodyLimit",
-) {}
+} from "@node-effect/api-contract";
 
 // What jsonBody reads from an endpoint: its payloads and their types, its
 // identifier and its annotations.
@@ -197,18 +192,4 @@ const jsonBodyHandler =
       Effect.flatMap((body) => handler(body, request)),
     );
 
-// Sets the body limit on a JSON endpoint's contract: `maxBytes` is what
-// `jsonBodyHandler` reads there, beside the PayloadTooLargeResponse and
-// UnsupportedMediaTypeResponse the endpoint must declare.
-const withJsonBodyLimit =
-  (maxBytes: number) =>
-  <
-    Endpoint extends {
-      readonly annotate: (key: typeof JsonBodyLimit, value: number) => Endpoint;
-    },
-  >(
-    endpoint: Endpoint,
-  ) =>
-    endpoint.annotate(JsonBodyLimit, maxBytes);
-
-export { jsonBodyHandler, withJsonBodyLimit };
+export { jsonBodyHandler };

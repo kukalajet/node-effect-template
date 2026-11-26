@@ -13,6 +13,9 @@ const oncePath = fileURLToPath(new URL("../once.ts", import.meta.url));
 const unreachableDatabaseUrl =
   "postgresql://app:SECRET_SENTINEL@127.0.0.1:1/app";
 
+// A URL that does not parse, whose password must not reach the log either.
+const malformedDatabaseUrl = "postgresql://app:SECRET_SENTINEL@[bad/app";
+
 // Runs once.ts with only `env`, so neither the shell's LOG_LEVEL nor .env
 // changes the result.
 const runOnce = (env: Record<string, string>) => {
@@ -66,5 +69,29 @@ describe("apps/worker/src/once.ts", () => {
     );
 
     assert.notInclude(stdout, "SECRET_SENTINEL");
+  });
+
+  it("reports a DATABASE_URL it cannot parse by safe diagnostics", () => {
+    // PgClient.make parses the URL while the services are built, before any
+    // repository could turn its SqlError into a persistence failure.
+    const { status, stdout, stderr, lines } = runOnce({
+      DATABASE_URL: malformedDatabaseUrl,
+    });
+
+    assert.strictEqual(status, 1);
+    assert.strictEqual(stderr, "");
+
+    assert.deepStrictEqual(
+      lines.map((line) => [line.message, line.level]),
+      [["Worker failed", "ERROR"]],
+    );
+
+    assert.include(
+      lines[0]?.cause,
+      '"diagnostics":{"reason":"ConnectionError","code":"ERR_INVALID_URL"}',
+    );
+
+    assert.notInclude(stdout, "SECRET_SENTINEL");
+    assert.notInclude(stdout, "    at ");
   });
 });

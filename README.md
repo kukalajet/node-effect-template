@@ -2,10 +2,13 @@
 
 Reusable backend starter: Node.js 26, Effect 4, PostgreSQL and Drizzle, with an
 HTTP API, a persistent worker, a CLI, and a production deployment to a single
-VPS behind Cloudflare Tunnel. The users feature, the polling job and the CLI's
-users commands are examples to replace with your own.
+VPS behind Cloudflare Tunnel. A small web app built with
+[Effect UI](https://ui.effect.website/) shows the API from a browser. The users
+feature, the polling job, the CLI's users commands and the web app's page are
+examples to replace with your own.
 
-Node runs the TypeScript sources directly: there is no build step. Packages
+Node runs the TypeScript sources of the API, the worker and the CLI directly:
+there is no build step. Vite bundles the web app for the browser. Packages
 follow dependency boundaries and application code is grouped by feature. See
 [ARCHITECTURE.md](./ARCHITECTURE.md) for code placement, Effect composition and
 testing conventions, and [READABILITY.md](./READABILITY.md) for the code style
@@ -65,14 +68,24 @@ pnpm cli users create --email ada@example.com --display-name "Ada Lovelace"
 pnpm cli users list
 ```
 
+For the web app, run its dev server beside the API and open
+`http://localhost:5173`:
+
+```sh
+pnpm dev:web
+```
+
+It forwards `/api` to the API at the `API_HOST` and `API_PORT` in `.env`. See
+[Web app](#web-app).
+
 ### Environment
 
 | Variable                                            | Default            | Used by                                                                        |
 | --------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------ |
 | `DATABASE_URL`                                      | required           | API, worker, CLI, migrations, Drizzle Kit, PostgreSQL tests                    |
 | `DATABASE_STATEMENT_TIMEOUT_MS`                     | `10000`            | API, worker and CLI: PostgreSQL cancels a statement that runs longer (below)   |
-| `API_HOST`                                          | `127.0.0.1`        | API                                                                            |
-| `API_PORT`                                          | `8000`             | API; Compose also publishes the container API on it                            |
+| `API_HOST`                                          | `127.0.0.1`        | API, web app's `/api` proxy                                                    |
+| `API_PORT`                                          | `8000`             | API, web app's `/api` proxy; Compose also publishes the container API on it    |
 | `WORKER_POLL_INTERVAL_MS`                           | `5000`             | Worker: the pause after each pass of a job                                     |
 | `WORKER_PASS_TIMEOUT_MS`                            | `60000`            | Worker: a pass of a job that runs longer fails the worker                      |
 | `LOG_LEVEL`                                         | `Info`             | API, worker, CLI and migrations: the lowest level logged ([Logs](#logs))       |
@@ -120,7 +133,8 @@ only safe diagnostics such as a SQLSTATE code.
 
 The API starts while the database is unavailable, because the connection pool
 opens connections on demand. Liveness stays 200 during an outage; readiness and
-user requests fail until PostgreSQL returns.
+user requests fail until PostgreSQL returns. A `DATABASE_URL` that does not
+parse stops it from starting, as invalid configuration does.
 
 Database work has time limits. On the connections of the API, the worker and the
 CLI, PostgreSQL cancels a statement after `DATABASE_STATEMENT_TIMEOUT_MS`
@@ -134,12 +148,10 @@ to 5 seconds more for the server to confirm it cancelled the query, so a request
 already sent on an open connection to a server that stopped answering fails
 after 22 seconds by default, or 10 for readiness. That connection is then
 dropped, and a request that has to open a new one fails within 5 seconds, when
-connecting gives up. A statement, lock or pool timeout, or a call that gives up,
-is a failed database operation: `500 DATABASE_ERROR`, or `503` for readiness,
-logged with its safe diagnostics. A session ended for idling inside a
-transaction takes its connection with it, so that transaction fails with a
-defect instead, which the API answers with `500 INTERNAL_ERROR` and the worker
-with a restart (see `packages/database/src/postgres.ts`).
+connecting gives up. A statement, lock or pool timeout, a session ended for
+idling inside a transaction (25P03), or a call that gives up, is a failed
+database operation: `500 DATABASE_ERROR`, or `503` for readiness, logged with
+its safe diagnostics.
 
 `DATABASE_STATEMENT_TIMEOUT_MS` accepts 1 to 2147483647, PostgreSQL's limit.
 Below 8000, a statement waiting for a lock is cancelled as a statement timeout
@@ -303,6 +315,53 @@ parameters (`UrlParams.CurrentRedactedNames`). Reduce persistence failures with
 `redactPersistenceFailures`, and drop or redact those attributes, before
 anything leaves the process.
 
+## Web app
+
+`apps/web` is one page built with [Effect UI](https://ui.effect.website/)
+(`@effect/ui`), Effect's frontend library in the Elm Architecture: a component's
+Model changes only in its `update`, and its side effects are Commands that the
+runtime runs. The page lists the users `GET /users` returns and adds one with
+`POST /users`.
+
+- **A typed client.** `src/api-client.ts` derives the client from
+  `@node-effect/api-contract`, the contract the API serves, so each call's
+  payload, success and declared errors are typed. A declared error shows the
+  API's own message; any other failure says that the API could not be reached,
+  which status it answered with, or that its answer could not be read. The page
+  calls the API under `/api` on its own origin, and `pnpm dev:web` forwards
+  those requests to it.
+- **A query for the list.** `ListUsers` in `src/users/list-users.ts` is an
+  Effect UI query: the runtime fetches it when the page renders and caches the
+  result, which the view shows as loading, failed or loaded. When fetching it
+  again fails, the users it had loaded stay, under the reason.
+- **An optimistic create.** The form checks each field with the domain schema
+  the API decodes it with. A valid submit issues `CreateUser`, a Command whose
+  optimistic patch puts the new user at the top of a loaded list, marked
+  "Saving…", before the API answers. If the API refuses it, as with
+  `409 USER_ALREADY_EXISTS`, the row goes at once, and the form says why and
+  keeps what was typed. If the API creates it, the row stays until the list is
+  fetched again, and the saved user takes its place in the render that empties
+  the form. The form then says which user it added. A list slower than five
+  seconds gives the form back first, and if fetching the list fails, the row
+  goes and only the form shows the new user. The form is disabled while the
+  create runs, and its end puts focus back in it. Its errors and messages are
+  live regions, which screen readers announce.
+- **Tests without a browser.** `src/users/test/` drives `update` in a story, and
+  the whole page in a play on Effect UI's test host: the real client over a fake
+  `HttpClient`, whose answers `TestClock` holds back so the test can look at the
+  page before and after them. `src/test/` checks what the page says for each
+  kind of failed call. `pnpm test` runs them with the other unit tests.
+
+`pnpm build:web` writes the page to `apps/web/dist`, and `pnpm preview:web`
+serves that build with the same `/api` forwarding. The API answers no CORS
+preflight, so in production serve the page and the API from one origin, and
+forward `/api/*` to the API with the `/api` prefix removed, as
+`apps/web/vite.config.ts` does: the API's own paths, such as `/users`, have no
+prefix. The container image and the VPS deployment do not serve the web app.
+
+Effect UI is in public preview and not on npm; see
+[Prerelease notes](#prerelease-notes).
+
 ## Scripts
 
 | Script                                | What it does                                                                                          |
@@ -312,6 +371,8 @@ anything leaves the process.
 | `pnpm start:api`, `pnpm start:worker` | Runs the API or worker with `.env`, without watching                                                  |
 | `pnpm sample:worker`                  | Runs one pass of every worker job, then exits                                                         |
 | `pnpm cli <command>`                  | Runs one CLI command with `.env`, such as `pnpm cli users list`; `pnpm cli --help` lists them         |
+| `pnpm dev:web`                        | Serves the web app at `http://localhost:5173`, forwarding `/api` to the API                           |
+| `pnpm build:web`, `pnpm preview:web`  | Builds the web app into `apps/web/dist`, or serves that build, forwarding `/api` to the API           |
 | `pnpm db:generate --name=<change>`    | Generates a migration in `drizzle/` from schema changes (Drizzle Kit)                                 |
 | `pnpm db:check`                       | Prints Drizzle Kit's migration check; it exits 0 even when the schema differs                         |
 | `pnpm db:verify`                      | Fails when the schema files and the migrations in `drizzle/` differ; part of `pnpm check`             |
@@ -321,10 +382,10 @@ anything leaves the process.
 | `pnpm fmt`                            | Formats every file with oxfmt                                                                         |
 | `pnpm lint`                           | Lints with oxlint                                                                                     |
 | `pnpm fix`                            | Formats, then applies safe lint fixes                                                                 |
-| `pnpm typecheck`                      | Type-checks with TypeScript's `tsc` and Effect's diagnostics (`scripts/typecheck.ts`)                 |
+| `pnpm typecheck`                      | Type-checks both projects with TypeScript's `tsc` and Effect's diagnostics (`scripts/typecheck.ts`)   |
 | `pnpm test`                           | Runs the unit tests                                                                                   |
 | `pnpm test:postgres`                  | Runs the tests that need PostgreSQL                                                                   |
-| `pnpm check`                          | Format check, lint, type check, migration drift check and unit tests: what CI and the image build run |
+| `pnpm check`                          | Format, lint, type and migration drift checks, unit tests, web build: what CI and the image build run |
 | `pnpm check:static`                   | shellcheck, actionlint and zizmor from pinned Docker images: what CI's `static` job runs              |
 | `pnpm smoke:docker`                   | Smoke-tests a built image against a real PostgreSQL                                                   |
 | `pnpm scan:image [image]`             | Scans a built image with Grype as CI does; the default image is `node-effect-template:local`          |
@@ -354,8 +415,9 @@ anything leaves the process.
   among others. [READABILITY.md](./READABILITY.md) says which of its rules lint
   enforces.
 - **Config-only lint guards** in `.oxlintrc.json` reject `console`,
-  `process.env` (read `AppConfig`) and `Effect.run*` (run effects with
-  `NodeRuntime.runMain` in an entry point) in `apps/` and `packages/`. They
+  `process.env` (read `AppConfig` outside the browser) and `Effect.run*` (run
+  effects with `NodeRuntime.runMain` in an entry point, or
+  `BrowserRuntime.runMain` in the web app's) in `apps/` and `packages/`. They
   reject imports of `@node-effect/database` and `effect/sql` in every folder
   under `apps/*/src/`, tests included; only the composition roots directly in
   `src/` may import them. Everywhere, they reject non-null assertions (`x!`),
@@ -379,24 +441,29 @@ anything leaves the process.
   trailing commas, and Markdown prose wrapped at 80 columns. Import sorting is
   lint's job, in five groups: `node:` built-ins, packages, `@node-effect/*`,
   `../`, then `./`.
-- **Type checking** uses the single root `tsconfig.json` (strict,
+- **Type checking** uses the root `tsconfig.json` (strict,
   `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, and unused-code
-  checks). `pnpm typecheck` runs TypeScript 7's `tsc` as `@effect/tsgo` builds
-  it, with the Effect language service inside: `scripts/typecheck.ts` picks the
-  build made from the installed `typescript`, and fails when there is none.
-  Type-aware lint reads types through `oxlint-tsgolint`'s own TypeScript build,
-  without Effect's diagnostics; the type check is the authoritative one.
+  checks). `apps/web/tsconfig.json` extends it for the web app's `src`, which
+  runs in a browser: it has the DOM's types and none of Node's, and the root
+  project leaves that folder out. `pnpm typecheck` checks both projects with
+  TypeScript 7's `tsc` as `@effect/tsgo` builds it, with the Effect language
+  service inside: `scripts/typecheck.ts` picks the build made from the installed
+  `typescript`, and fails when there is none. Type-aware lint reads types
+  through `oxlint-tsgolint`'s own TypeScript build, without Effect's
+  diagnostics; the type check is the authoritative one.
 - **Effect's diagnostics.** The type check also reports mistakes that plain
   `tsc` passes, such as an Effect that is built but never run, `yield` written
   for `yield*`, and an Effect returned to a plain Vitest `it`, which passes
   without running it. Errors and warnings fail it; suggestions are not shown.
   The `@effect/language-service` plugin in `tsconfig.json` configures them, with
-  `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, CLI, Node platform and
-  Vitest modules the template is built on as unstable. Fix the code where you
-  can; two `Effect.provide` calls in a row, for example, become one, with the
-  layers merged or provided to each other. To accept a finding on one line, put
-  `// @effect-diagnostics-next-line <rule>:off` on the line above, with a
-  comment that says why; an unused directive fails the check.
+  `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, CLI, reactivity,
+  testing, Node and browser platform, and Vitest modules the template is built
+  on as unstable. `allowedExperimentalApis` exempts `@effect/ui`, which marks
+  every API experimental; any other experimental API still fails the check. Fix
+  the code where you can; two `Effect.provide` calls in a row, for example,
+  become one, with the layers merged or provided to each other. To accept a
+  finding on one line, put `// @effect-diagnostics-next-line <rule>:off` on the
+  line above, with a comment that says why; an unused directive fails the check.
   `scripts/typecheck.test.ts` type-checks a fixture with each of the three
   mistakes above and fails unless each is an error, so a renamed plugin entry or
   an option that turns them off cannot pass silently. Editors show the same
@@ -418,7 +485,8 @@ anything leaves the process.
   endpoint contract, and the served OpenAPI document against the one generated
   from the code. CLI tests run each command as the CLI does, in a fake terminal.
   Database adapter tests run the real Drizzle queries against a fake PostgreSQL
-  client.
+  client. The web app's tests run its page on Effect UI's test host, with no
+  browser (see [Web app](#web-app)).
 - **`pnpm test:postgres`** runs every `*.postgres.ts` under `apps/` and
   `packages/`, one file at a time, against a real PostgreSQL. Each test creates
   a schema with a random name, applies the migrations in `drizzle/`, and drops
@@ -696,13 +764,15 @@ test fails until you do.
 
 ## Exact dependency policy
 
-Every version is exact; there are no ranges. Renovate keeps them current, so
-this README names no exact versions; read them where they are pinned:
+Every version is exact; there are no ranges. Renovate keeps them current, except
+`@effect/ui` (see [Prerelease notes](#prerelease-notes)), so this README names
+no exact versions; read them where they are pinned:
 
 | File                                                     | Pins                                                                                                                        |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `package.json`                                           | Node (`devEngines.runtime`), pnpm (`packageManager`, `devEngines.packageManager`) and the root `devDependencies`            |
 | `pnpm-workspace.yaml`                                    | The `catalog` of dependencies the workspace packages share, such as Effect and Drizzle, and the Vite and Vitest `overrides` |
+| `apps/web/package.json`                                  | `@effect/ui` by the commit of the snapshot build in `apps/web/vendor` (see [Prerelease notes](#prerelease-notes))           |
 | `Dockerfile`                                             | The Node base image by digest, the pnpm it installs, and the Dockerfile syntax image                                        |
 | `docker-compose.yml`, `deploy/vps/compose.yml`, `ci.yml` | PostgreSQL by digest, and in `deploy/vps/compose.yml` `cloudflared`                                                         |
 | `scripts/check-static.sh`, `scripts/scan-image.sh`       | The shellcheck, actionlint, zizmor and Grype images by digest                                                               |
@@ -710,8 +780,9 @@ this README names no exact versions; read them where they are pinned:
 
 Dependencies shared by workspace packages are declared once in the `catalog` and
 referenced as `catalog:`; workspace packages depend on each other with
-`workspace:*`. The four Effect packages share one version, as do Drizzle ORM and
-Kit. The lockfile is committed, so indirect resolution is reproducible.
+`workspace:*`. The Effect packages in the catalog share one version, as do
+Drizzle ORM and Kit. The lockfile is committed, so indirect resolution is
+reproducible.
 
 pnpm 12 does not resolve a version published less than a day ago unless you name
 it exactly. With `trustPolicy: no-downgrade` in `pnpm-workspace.yaml`, it also
@@ -723,8 +794,8 @@ checked such a version and trust it, list it in `trustPolicyExclude`.
 ### Dependency updates
 
 [Renovate](https://docs.renovatebot.com/), configured in
-[`renovate.json5`](./renovate.json5), opens a pull request for every pin above,
-and for the lockfile once a week. Install the
+[`renovate.json5`](./renovate.json5), opens a pull request for every pin above
+except `@effect/ui`, and for the lockfile once a week. Install the
 [Renovate GitHub App](https://github.com/apps/renovate) on the repository; this
 is a manual step for its owner, and it needs Issues turned on for the Dependency
 Dashboard. Because the configuration already exists, Renovate skips its
@@ -764,6 +835,10 @@ onboarding pull request.
     approve it only once you have confirmed the maintainers moved the tag.
   - **The weekly lockfile pull request.** pnpm re-resolves indirect dependencies
     for it with its own minimum release age of one day (see above).
+  - **`@effect/ui`.** Renovate skips the vendored tarball, and pnpm's minimum
+    release age and `trustPolicy` need registry metadata, which a tarball does
+    not have. Update it by hand, to a `main` commit at least three days old (see
+    [Updating Effect UI](#updating-effect-ui)).
   - **Security fixes.** With Dependabot alerts on, Renovate opens a pull request
     for a vulnerable dependency's fix at once, without the wait.
 - **One pull request per group,** and nothing merges by itself; every pull
@@ -809,11 +884,24 @@ Effect TypeScript executable matches installed TypeScript …" and what to do.
 Renovate does not manage the image built from this repository
 (`node-effect-template:local` and the commit-tagged release images), the
 `ubuntu-latest` runners, the Grype vulnerability database (each scan downloads
-the current one), or the Debian packages inside the base images, which arrive
-with a new base image digest.
+the current one), the Debian packages inside the base images, which arrive with
+a new base image digest, or `@effect/ui`, a tarball in the repository (see
+[Prerelease notes](#prerelease-notes)).
 
 ## Prerelease notes
 
+- **Effect UI** is in public preview and not on npm.
+  [pkg.pr.new](https://pkg.pr.new/) hosts builds of the commits on Effect UI's
+  `main` and its pull requests. It documents no retention, and its code can
+  delete a build six months after upload, or once nobody has downloaded it for a
+  month. So the repository keeps the build of one `main` commit as
+  `apps/web/vendor/effect-ui-<short-sha>.tgz`, which `apps/web/package.json`
+  installs with a `file:` specifier: installs, CI and image builds never reach
+  pkg.pr.new. The image's `check` stage copies the tarball before its install,
+  and the runtime image leaves it out. Its APIs can change from one commit to
+  the next. It requires `effect` at the version its manifest names, which the
+  Effect group in the catalog has to meet. See
+  [Updating Effect UI](#updating-effect-ui).
 - **Drizzle 1.0** is a release candidate. From rc.5 on it works with stable
   Effect 4 (`Schema.TaggedError`, `effect/sql`), so no patch is needed.
   `migrate.ts` uses its Effect migrator, `drizzle-orm/effect-postgres/migrator`.
@@ -832,6 +920,56 @@ with a new base image digest.
   `vite-plus` pins.
 - **`@effect/platform-node`** declares `redis` as a required peer, although only
   its Redis module uses it; `packageExtensions` marks it optional.
+
+### Updating Effect UI
+
+Renovate leaves `@effect/ui` alone, so update it by hand when the web app needs
+a newer Effect UI. Each update adds about 1.4 MB to the repository's history.
+
+1. Pick a commit on Effect UI's `main` that is at least three days old and has a
+   build. The [builds page](https://pkg.pr.new/~/Effect-TS/ui) lists pull
+   request builds too, so check the commit in a clone of
+   [Effect-TS/ui](https://github.com/Effect-TS/ui):
+   `git merge-base --is-ancestor <full-sha> origin/main` succeeds only for a
+   commit on `main`, and `git log -1 --format=%cI <full-sha>` prints its date. A
+   commit pushed just before another may have no build, and running its workflow
+   again replaces the build, so
+   `curl -fsSI https://pkg.pr.new/Effect-TS/ui/@effect/ui@<full-sha>` has to
+   succeed and show a `last-modified` at least three days old too.
+2. Download the build by the full SHA, which pkg.pr.new never reads as a branch
+   name, into a file named by the short SHA:
+
+   ```sh
+   curl -fsSL -o apps/web/vendor/effect-ui-<short-sha>.tgz \
+     https://pkg.pr.new/Effect-TS/ui/@effect/ui@<full-sha>
+   ```
+
+3. Extract the old and the new tarball into separate folders outside the
+   repository, and diff the whole package. Both unpack to `package/`, and files
+   left in the working tree fail `pnpm check`.
+
+   ```sh
+   old=$(mktemp -d) new=$(mktemp -d)
+   tar -xzf apps/web/vendor/effect-ui-<old-short-sha>.tgz -C "$old"
+   tar -xzf apps/web/vendor/effect-ui-<short-sha>.tgz -C "$new"
+   git diff --no-index --stat "$old/package" "$new/package"
+   git diff --no-index "$old/package" "$new/package"
+   ```
+
+   `dist/` is the JavaScript the web app runs, and `src/` its TypeScript source,
+   to which the build adds JSDoc, so neither matches the commit's files exactly.
+   Check that `package.json` adds no install scripts and that its `effect` peer
+   range still allows the catalog's version.
+
+4. Point `@effect/ui` in `apps/web/package.json` at the new file, delete the old
+   one with `git rm`, then run `pnpm install` and `pnpm check`.
+
+The lockfile holds the tarball's integrity hash. A frozen install, as in CI and
+the image build, fails when the file changes without the lockfile, but a plain
+`pnpm install` records the new hash, so reject a pull request that changes the
+hash without renaming the file. While pkg.pr.new still has the build, a reviewer
+can confirm the file is that commit's build:
+`curl -fsSL <the URL> | cmp - <the file>` prints nothing.
 
 ## Caveats
 

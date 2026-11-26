@@ -13,10 +13,10 @@ import { TestConsole } from "effect/testing";
 
 import { CliConfigLive } from "../commands.ts";
 
-// What effect/cli needs to run a command that reads no file, starts no process
-// and prompts for nothing, as none here does, the CLI's global flags, and a
-// formatter without colors, so that what a command prints does not depend on
-// the terminal that runs the tests.
+// What effect/cli needs to run a command that reads no file, starts no process,
+// prompts for nothing and watches no terminal size, as none here does, the
+// CLI's global flags, and a formatter without colors, so that what a command
+// prints does not depend on the terminal that runs the tests.
 const CliEnvironmentTest = Layer.mergeAll(
   FileSystem.layerNoop({}),
   Path.layer,
@@ -26,6 +26,7 @@ const CliEnvironmentTest = Layer.mergeAll(
     Terminal.make({
       columns: Effect.succeed(80),
       rows: Effect.succeed(24),
+      size: Effect.die("A command watched the terminal size"),
       readInput: Effect.die("A command read terminal input"),
       readLine: Effect.die("A command read terminal input"),
       display: () => Effect.void,

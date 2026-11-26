@@ -2,6 +2,7 @@ import { Cause, Effect, Exit, Runtime } from "effect";
 import { CliError } from "effect/cli";
 
 import { reportFailure } from "@node-effect/application";
+import { databaseFailureRedaction } from "@node-effect/database";
 
 // Replaces a domain error, such as UserNotFound, with a message the user can
 // act on: effect/cli prints it on standard error and the command exits 1. The
@@ -30,17 +31,20 @@ const isHandledByCli = (reason: Cause.Reason<unknown>) => {
 
 // Logs a failure once, as every entry point does: a persistence failure by its
 // safe diagnostics, also when one arrives as a defect, and nothing for
-// interruption or for what effect/cli handles itself. Any other failure keeps
-// its details: missing configuration names the variable, and anything else is
-// unexpected.
+// interruption or for what effect/cli handles itself. A raw database error,
+// such as the SqlError for a DATABASE_URL that does not parse, which arrives
+// while the services are built, is reduced the same way. Any other failure
+// keeps its details: missing configuration names the variable, and anything
+// else is unexpected.
 const reportCliFailure = (cause: Cause.Cause<unknown>) => {
   const unhandled = cause.reasons.filter((reason) => !isHandledByCli(reason));
 
   if (unhandled.length === 0) return Effect.void;
 
-  return reportFailure("CLI failed")(Cause.fromReasons(unhandled)).pipe(
-    Effect.annotateLogs({ service: "cli" }),
-  );
+  return reportFailure(
+    "CLI failed",
+    databaseFailureRedaction,
+  )(Cause.fromReasons(unhandled)).pipe(Effect.annotateLogs({ service: "cli" }));
 };
 
 // runMain's exit code, but never 0 for a defect. A defect in cleanup turns a
