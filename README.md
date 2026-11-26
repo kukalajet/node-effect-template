@@ -1,9 +1,9 @@
 # Node Effect backend template
 
 Reusable backend starter: Node.js 26, Effect 4, PostgreSQL and Drizzle, with an
-HTTP API, a persistent worker, and a production deployment to a single VPS
-behind Cloudflare Tunnel. The users feature and the polling job are examples to
-replace with your own.
+HTTP API, a persistent worker, a CLI, and a production deployment to a single
+VPS behind Cloudflare Tunnel. The users feature, the polling job and the CLI's
+users commands are examples to replace with your own.
 
 Node runs the TypeScript sources directly: there is no build step. Packages
 follow dependency boundaries and application code is grouped by feature. See
@@ -58,26 +58,33 @@ pnpm dev:worker
 Both load `.env` with `node --env-file` and restart when a source file changes.
 The API listens on `http://127.0.0.1:8000`; open `/docs` for Swagger UI.
 
+The CLI runs one command with `.env` and exits; `pnpm cli --help` lists them:
+
+```sh
+pnpm cli users create --email ada@example.com --display-name "Ada Lovelace"
+pnpm cli users list
+```
+
 ### Environment
 
-| Variable                                            | Default            | Used by                                                                   |
-| --------------------------------------------------- | ------------------ | ------------------------------------------------------------------------- |
-| `DATABASE_URL`                                      | required           | API, worker, migrations, Drizzle Kit, PostgreSQL tests                    |
-| `DATABASE_STATEMENT_TIMEOUT_MS`                     | `10000`            | API and worker: PostgreSQL cancels a statement that runs longer (below)   |
-| `API_HOST`                                          | `127.0.0.1`        | API                                                                       |
-| `API_PORT`                                          | `8000`             | API; Compose also publishes the container API on it                       |
-| `WORKER_POLL_INTERVAL_MS`                           | `5000`             | Worker: the pause after each pass of a job                                |
-| `WORKER_PASS_TIMEOUT_MS`                            | `60000`            | Worker: a pass of a job that runs longer fails the worker                 |
-| `LOG_LEVEL`                                         | `Info`             | API, worker and migrations: the lowest level logged ([Logs](#logs))       |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | see `.env.example` | Compose's PostgreSQL, and the database URL Compose gives `migrate`        |
-| `APP_DATABASE_USER`, `APP_DATABASE_PASSWORD`        | see `.env.example` | `migrate`, which creates this role; Compose's API and worker log in as it |
-| `POSTGRES_PORT`                                     | `5432`             | The loopback port Compose publishes PostgreSQL on                         |
+| Variable                                            | Default            | Used by                                                                        |
+| --------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`                                      | required           | API, worker, CLI, migrations, Drizzle Kit, PostgreSQL tests                    |
+| `DATABASE_STATEMENT_TIMEOUT_MS`                     | `10000`            | API, worker and CLI: PostgreSQL cancels a statement that runs longer (below)   |
+| `API_HOST`                                          | `127.0.0.1`        | API                                                                            |
+| `API_PORT`                                          | `8000`             | API; Compose also publishes the container API on it                            |
+| `WORKER_POLL_INTERVAL_MS`                           | `5000`             | Worker: the pause after each pass of a job                                     |
+| `WORKER_PASS_TIMEOUT_MS`                            | `60000`            | Worker: a pass of a job that runs longer fails the worker                      |
+| `LOG_LEVEL`                                         | `Info`             | API, worker, CLI and migrations: the lowest level logged ([Logs](#logs))       |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | see `.env.example` | Compose's PostgreSQL, and the database URL Compose gives `migrate`             |
+| `APP_DATABASE_USER`, `APP_DATABASE_PASSWORD`        | see `.env.example` | `migrate`, which creates this role; Compose's API, worker and CLI log in as it |
+| `POSTGRES_PORT`                                     | `5432`             | The loopback port Compose publishes PostgreSQL on                              |
 
 `packages/config` validates the application variables; `DATABASE_URL` stays
 redacted in logs. If you change `POSTGRES_PORT` or the credentials, change
 `DATABASE_URL` in `.env` to match. Native commands all use that one owner URL,
-so `pnpm dev:api` and `pnpm dev:worker` run as the owner, unlike the containers
-(see [Database roles](#database-roles)).
+so `pnpm dev:api`, `pnpm dev:worker` and `pnpm cli` run as the owner, unlike the
+containers (see [Database roles](#database-roles)).
 
 ## Application behavior
 
@@ -115,8 +122,8 @@ The API starts while the database is unavailable, because the connection pool
 opens connections on demand. Liveness stays 200 during an outage; readiness and
 user requests fail until PostgreSQL returns.
 
-Database work has time limits. On the API's and the worker's connections
-PostgreSQL cancels a statement after `DATABASE_STATEMENT_TIMEOUT_MS`
+Database work has time limits. On the connections of the API, the worker and the
+CLI, PostgreSQL cancels a statement after `DATABASE_STATEMENT_TIMEOUT_MS`
 (SQLSTATE 57014) and a wait for a lock after 8 seconds (55P03), and ends a
 session left idle inside a transaction for 30 seconds. A query waits at most 5
 seconds for a pooled connection. PostgreSQL enforces its own limits, so none of
@@ -162,10 +169,44 @@ LOG_LEVEL=Debug pnpm sample:worker
 LOG_LEVEL=Debug docker compose run --rm worker-once
 ```
 
+### Command line
+
+The CLI runs one command and exits. `--help` lists the commands, also after a
+group such as `users`, and `--version` prints the CLI's version.
+
+| Command                                              | What it does                                                                     |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `users list [--limit <n>]`                           | Prints up to `n` users (1–100, default 50), newest first                         |
+| `users get <id>`                                     | Prints one user; `User not found` when there is none with that id                |
+| `users create --email <email> --display-name <name>` | Creates a user and prints it; `A user with this email already exists` when taken |
+
+```sh
+pnpm cli users list --limit 10 | jq -r .email
+# Or, with the container image built:
+docker compose run --rm cli users list --limit 10
+```
+
+On standard output a command prints each user as one line of JSON, as the API
+sends it. `--help` and `--version` print there too, and so does the command's
+help after invalid input. Standard error gets what is wrong with the input, such
+as an email without a domain, the message for a domain error, such as
+`User not found`, and log lines, so check the exit code before reading standard
+output. The CLI exits 0 when the command succeeds or prints its help or version,
+1 when it fails, and 130 when SIGINT or SIGTERM stops it. Flags and arguments
+are checked before the command reads its configuration or connects, so `--help`,
+`--version` and invalid input need neither. A group run without a command, such
+as `pnpm cli users`, prints its help too, but it reads the configuration first,
+so it needs `DATABASE_URL`, though it opens no connection. A command that cannot
+reach the database fails as a worker pass does, with one `CLI failed` line that
+carries its safe diagnostics, and nothing retries it.
+
 ### Logs
 
 The API, the worker and `migrate` write one JSON object per line to standard
-output, through `LoggingLive` in `packages/config/src/logging.ts`. This is the
+output, through `LoggingLive` in `packages/config/src/logging.ts`. The CLI
+writes the same lines to standard error, through `StderrLoggingLive`, so they
+never mix with what a command prints, unless `docker compose run` gives the CLI
+a terminal (see [Local container stack](#local-container-stack)). This is the
 access line of an API request, spread over several lines here:
 
 ```json
@@ -225,8 +266,10 @@ another value is left out rather than logged.
   `docker-compose.yml` and every 10 in `deploy/vps/compose.yml`, 8,640 times a
   day, and `bin/release` polls readiness during a release.
 
-A failure that stops a process is one Error line, `API failed`, `Worker failed`
-or `Database migration failed`, with database failures reduced the same way.
+A failure that stops a process is one Error line, `API failed`, `Worker failed`,
+`CLI failed` or `Database migration failed`, with database failures reduced the
+same way. Invalid input and a domain error stop the CLI with a message on
+standard error and no log line.
 
 **Following a request.** Each request runs in a span of its own, in a new trace
 unless the request names one, so its access line and every line its handlers log
@@ -268,6 +311,7 @@ anything leaves the process.
 | `pnpm dev:api`, `pnpm dev:worker`     | Runs the API or worker with `.env`, restarting on changes                                             |
 | `pnpm start:api`, `pnpm start:worker` | Runs the API or worker with `.env`, without watching                                                  |
 | `pnpm sample:worker`                  | Runs one pass of every worker job, then exits                                                         |
+| `pnpm cli <command>`                  | Runs one CLI command with `.env`, such as `pnpm cli users list`; `pnpm cli --help` lists them         |
 | `pnpm db:generate --name=<change>`    | Generates a migration in `drizzle/` from schema changes (Drizzle Kit)                                 |
 | `pnpm db:check`                       | Prints Drizzle Kit's migration check; it exits 0 even when the schema differs                         |
 | `pnpm db:verify`                      | Fails when the schema files and the migrations in `drizzle/` differ; part of `pnpm check`             |
@@ -347,10 +391,10 @@ anything leaves the process.
   for `yield*`, and an Effect returned to a plain Vitest `it`, which passes
   without running it. Errors and warnings fail it; suggestions are not shown.
   The `@effect/language-service` plugin in `tsconfig.json` configures them, with
-  `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, Node platform and Vitest
-  modules the template is built on as unstable. Fix the code where you can; two
-  `Effect.provide` calls in a row, for example, become one, with the layers
-  merged or provided to each other. To accept a finding on one line, put
+  `unstableApiUsage` off: Effect 4 marks the HTTP, SQL, CLI, Node platform and
+  Vitest modules the template is built on as unstable. Fix the code where you
+  can; two `Effect.provide` calls in a row, for example, become one, with the
+  layers merged or provided to each other. To accept a finding on one line, put
   `// @effect-diagnostics-next-line <rule>:off` on the line above, with a
   comment that says why; an unused directive fails the check.
   `scripts/typecheck.test.ts` type-checks a fixture with each of the three
@@ -372,8 +416,9 @@ anything leaves the process.
   (`it.effect`, and `TestClock` from `effect/testing`) and replace services with
   layers; module mocking fails lint. API tests check every response against the
   endpoint contract, and the served OpenAPI document against the one generated
-  from the code. Database adapter tests run the real Drizzle queries against a
-  fake PostgreSQL client.
+  from the code. CLI tests run each command as the CLI does, in a fake terminal.
+  Database adapter tests run the real Drizzle queries against a fake PostgreSQL
+  client.
 - **`pnpm test:postgres`** runs every `*.postgres.ts` under `apps/` and
   `packages/`, one file at a time, against a real PostgreSQL. Each test creates
   a schema with a random name, applies the migrations in `drizzle/`, and drops
@@ -404,14 +449,14 @@ verification reads files only and needs no database or `DATABASE_URL`.
 `pnpm db:migrate`, the Compose `migrate` service and production releases all run
 `packages/database/src/migrate.ts`. It applies pending migrations in one
 transaction and records them in `drizzle.__drizzle_migrations`, the same journal
-Drizzle Kit uses, so either tool skips what the other applied. Neither
-application migrates at startup.
+Drizzle Kit uses, so either tool skips what the other applied. No application
+migrates at startup.
 
 ### Database roles
 
 Two PostgreSQL roles share the database. `migrate` connects as the owner,
-`POSTGRES_USER`, which the PostgreSQL image makes a superuser. The API and the
-worker in Compose and in production connect as the runtime role,
+`POSTGRES_USER`, which the PostgreSQL image makes a superuser. The API, the
+worker and the CLI in Compose and in production connect as the runtime role,
 `APP_DATABASE_USER`. It may read, insert, update and delete rows in the tables
 of the `public` schema and use their sequences. It is no superuser and belongs
 to no other role, so it cannot create, alter, drop or truncate those tables,
@@ -457,11 +502,19 @@ docker compose logs -f api worker
 The worker logs its passes at Debug; set `LOG_LEVEL=Debug` in `.env`, or prefix
 the `up` command with it, to see them.
 
+The CLI belongs to the `tools` profile and runs in a container of its own for
+each command, after `migrate`: `docker compose run --rm cli users list`. Run
+from a terminal, the container gets a terminal of its own, which carries the
+CLI's standard error on standard output too: `2>/dev/null` then hides none of
+its messages or log lines. Add `-T` to keep the two apart. A pipe or a redirect
+of standard output gets no terminal, so
+`docker compose run --rm cli users list | jq` needs no `-T`.
+
 The image build runs `pnpm check`. Compose waits for PostgreSQL, runs `migrate`,
 then starts the API and worker. `migrate` gets a database URL built from
-`POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB`, and the API and worker
-one built from `APP_DATABASE_USER`, `APP_DATABASE_PASSWORD` and `POSTGRES_DB`,
-so use URL-safe credentials. The API is published on
+`POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB`, and the API, the worker
+and the CLI one built from `APP_DATABASE_USER`, `APP_DATABASE_PASSWORD` and
+`POSTGRES_DB`, so use URL-safe credentials. The API is published on
 `127.0.0.1:${API_PORT:-8000}`; do not run the native and container APIs on the
 same port. Rebuild with the same command after changes. To apply new migrations
 through the image, rebuild it and run `docker compose run --rm migrate`.
@@ -478,7 +531,7 @@ Database data survives container recreation and `docker compose down`; adding
 ### Docker image
 
 The `Dockerfile` builds one image for the API (its default command), the worker,
-the one-shot worker and migrations:
+the one-shot worker, the CLI and migrations:
 
 - A `check` stage installs every dependency and runs `pnpm check`. The runtime
   stage depends on it, so code that fails the checks never becomes an image.
@@ -506,7 +559,8 @@ pnpm smoke:docker
 `scripts/smoke-docker.sh` starts the image in an isolated Compose project with a
 fresh database. It checks liveness and readiness, runs `scripts/smoke-api.ts`
 inside the API container (every endpoint, error status and the OpenAPI and docs
-pages), and runs `worker-once` and `migrate` again. It checks that a request's
+pages), runs `worker-once`, checks that the CLI's `users list` prints the user
+`smoke-api.ts` created, and runs `migrate` again. It checks that a request's
 access line has its `cf-ray` and a trace ID but not its query string, and that
 neither passing health probes nor Effect's own HTTP logger's lines appear. It
 checks that the worker has completed a pass without restarting and that the API
@@ -631,9 +685,10 @@ test fails until you do.
   runs `node_modules/.bin/tsc --lsp --stdio` as the tsgo extension's server in
   place of vtsls, and Zed asks you to trust the project before it starts a
   server from it. The oxlint language server fixes as you type and oxfmt formats
-  on save. `.zed/debug.json` has debug configurations for the API, the worker
-  and the current Vitest file. All three use the pinned Node in
-  `node_modules/.bin/node`; the API and worker load `.env`.
+  on save. `.zed/debug.json` has debug configurations for the API, the worker,
+  the CLI, whose `args` name the command, and the current Vitest file. All four
+  use the pinned Node in `node_modules/.bin/node`; the API, worker and CLI load
+  `.env`.
 - **VS Code:** install the recommended extensions, TypeScript 7 and Oxc.
   `.vscode/settings.json` points TypeScript 7 at `node_modules/typescript`, as
   `effect-tsgo setup --vscode` does, and formats with oxfmt and then applies

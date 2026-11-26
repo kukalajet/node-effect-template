@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the built image against a real PostgreSQL in an isolated Compose project:
-# migrations, API and worker-once smoke checks, the API's access log, the API
-# and worker connected as the non-superuser runtime role, liveness that
+# migrations, API, worker-once and CLI smoke checks, the API's access log, the
+# API and worker connected as the non-superuser runtime role, liveness that
 # survives a database outage, the fail-fast worker's restart and recovery, and
 # data kept in the volume.
 # Build the image first (`docker build -t node-effect-template:local .`).
@@ -105,6 +105,11 @@ if "${compose[@]}" logs --no-color api |
   exit 1
 fi
 "${compose[@]}" run --rm --no-deps worker-once
+# The CLI prints the user smoke-api.ts created, read as the runtime role. -T
+# rules out a terminal, which would carry its standard error into what grep
+# reads; a pipe gets none anyway.
+"${compose[@]}" run --rm --no-deps -T cli users list |
+  grep -F '"email":"ada@example.com"' > /dev/null
 "${compose[@]}" run --rm --no-deps migrate
 
 # Before the outage the worker has completed a pass and never restarted, so the

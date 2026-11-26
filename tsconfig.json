@@ -37,10 +37,11 @@
           "floatingEffect": "error",
           "missingStarInYieldEffectGen": "error",
           "floatingEffectInVitest": "error",
-          // Effect 4 marks effect/http, effect/http-api, effect/sql,
-          // @effect/sql-pg, @effect/platform-node and @effect/vitest unstable.
-          // The template is built on them, so this rule would flag about 250
-          // places, every `it` in the tests among them.
+          // Effect 4 marks effect/cli, effect/http, effect/http-api,
+          // effect/sql, effect/testing, @effect/sql-pg, @effect/platform-node
+          // and @effect/vitest unstable, among others. The template is built
+          // on them, so this rule would flag hundreds of places, every `it` in
+          // the tests among them.
           "unstableApiUsage": "off"
         },
         // Suggestions never fail the type check; left in, they would print on

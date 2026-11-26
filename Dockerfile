@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.27.1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 
-# One image runs the API (default command), the worker, the one-shot worker and
-# migrations, and carries deploy/vps for the server's bin/release. Building it
-# runs `pnpm check`, so the image cannot be built from code that fails
-# formatting, lint, type checking or unit tests.
+# One image runs the API (default command), the worker, the one-shot worker, the
+# CLI and migrations, and carries deploy/vps for the server's bin/release.
+# Building it runs `pnpm check`, so the image cannot be built from code that
+# fails formatting, lint, type checking or unit tests.
 #
 # The Node version equals devEngines.runtime in package.json, and the pnpm
 # version below equals packageManager: scripts/toolchain.test.ts fails `pnpm

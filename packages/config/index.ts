@@ -1,6 +1,6 @@
 export { AppConfig, appConfig } from "./src/app-config.ts";
 
-export { LoggingLive } from "./src/logging.ts";
+export { LoggingLive, StderrLoggingLive } from "./src/logging.ts";
 
 export {
   type RuntimeRole,
