@@ -48,9 +48,10 @@ fixed interval after each pass. _Avoid_: scheduling
 ### Web app
 
 **Pending user**: A user the web app has asked the API to create, shown in the
-list from the submit. It has no id or creation time yet. It leaves the list as
-soon as the API refuses it; if the API creates it, the saved user takes its
-place once the list is fetched again. _Avoid_: temporary user, fake user
+list from the submit, once the list has loaded. It has no id or creation time
+yet. It leaves the list as soon as the API refuses it. If the API creates it, it
+stays until the list is fetched again, and the saved user takes its place if
+that fetch succeeds. _Avoid_: temporary user, fake user
 
 **Saved user**: A user as the API returned it, with the id and creation time the
 API gave it.

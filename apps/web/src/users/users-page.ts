@@ -63,6 +63,10 @@ const UsersPageModel = Schema.Struct({
   saving: Schema.Boolean,
   // Why the last create failed, until the form is submitted again.
   failure: Schema.NullOr(Schema.String),
+  // The name of the user the last create saved, until the form is submitted
+  // again. The form says it, since the list misses that user when fetching it
+  // again fails.
+  added: Schema.NullOr(Schema.String),
 });
 type UsersPageModel = typeof UsersPageModel.Type;
 
@@ -92,8 +96,8 @@ const withPendingUser =
     ),
   ];
 
-// Asks the API to create a user, which the list shows as pending from the
-// submit.
+// Asks the API to create a user, which a list that has loaded shows as pending
+// from the submit.
 //
 // The body fails when the API refuses, rather than turning the refusal into a
 // message itself: a run that fails takes its patch off the list at once, while
@@ -125,7 +129,7 @@ class CreateUser extends Command.Service<CreateUser>()("users/CreateUser", {
 // replaces the pending one in the render that empties the form. The budget only
 // bounds that wait: a refetch takes a fraction of a second. One that takes
 // longer gets the form back sooner, and its pending row stays until the list
-// arrives.
+// arrives or fails.
 const createUser = (user: typeof CreateUserSchema.Type) =>
   CreateUser.make({ user }).pipe(
     Command.match({
@@ -160,9 +164,11 @@ const submittedNewUser = UsersPageDef.update("SubmittedNewUser", ($) => {
   const form = NewUserForm.submit($.model.form);
   const user = Option.flatMap(NewUserForm.validate(form).value, decodeNewUser);
 
-  if (Option.isNone(user)) return $.evolve({ form, failure: null });
+  if (Option.isNone(user)) {
+    return $.evolve({ form, failure: null, added: null });
+  }
 
-  return $.evolve({ form, saving: true, failure: null }).run(
+  return $.evolve({ form, saving: true, failure: null, added: null }).run(
     createUser(user.value),
   );
 });
@@ -204,7 +210,14 @@ const TextField = <Msg>(
       })
       .value(options.field.value)
       .on("input", ({ value }) => options.onInput(value)),
-    error !== undefined && h.p.id(errorId).class("field-error").children(error),
+    // An alert, so a screen reader reads the error out wherever focus is: a
+    // submit the form refuses leaves focus where it was.
+    error !== undefined &&
+      h.p
+        .id(errorId)
+        .class("field-error")
+        .attr("role", "alert")
+        .children(error),
   );
 };
 
@@ -239,6 +252,12 @@ const NewUserFormView = UsersPageDef.fragment((h, model: UsersPageModel) => {
           .attr("type", "submit")
           .children(model.saving ? "Adding…" : "Add user"),
       ),
+      // Always in the form, even empty: screen readers announce text put in a
+      // status already on the page more reliably than a new status.
+      h.p
+        .class("form-status")
+        .attr("role", "status")
+        .children(model.added !== null && `Added ${model.added}.`),
       model.failure !== null &&
         h.p
           .class("notice")
@@ -311,15 +330,21 @@ const UserList = (
 ) =>
   AsyncResult.matchWithError(users, {
     onInitial: () => h.p.class("status").children("Loading users…"),
-    // A list that loaded before stays, under why the last fetch failed.
+    // Rows that loaded before stay, under why the last fetch failed. A list
+    // that loaded empty does not: "No users yet" may no longer be true.
     onError: (reason, { previousSuccess, waiting }) => {
       const notice = LoadFailure(h, `Could not load users. ${reason}.`);
 
-      return Option.match(previousSuccess, {
-        onNone: () => notice,
-        onSome: ({ value: rows }) =>
-          h.div.class("user-list").children(notice, UserRows(h, rows, waiting)),
+      const rows = Option.match(previousSuccess, {
+        onNone: () => [],
+        onSome: ({ value }) => value,
       });
+
+      if (rows.length === 0) return notice;
+
+      return h.div
+        .class("user-list")
+        .children(notice, UserRows(h, rows, waiting));
     },
     // The query cache never stores a defect: a fetcher that dies fails the
     // page, which then shows the mount's fallback (main.ts). This branch only
@@ -329,15 +354,19 @@ const UserList = (
   });
 
 const UsersPageNoDeps = UsersPageDef.make({
-  init: () => ({ form: emptyForm, saving: false, failure: null }),
+  init: () => ({ form: emptyForm, saving: false, failure: null, added: null }),
   update: {
     UpdatedDisplayName: ($, { value }) =>
       $.evolve({ form: NewUserForm.change("displayName", value) }),
     UpdatedEmail: ($, { value }) =>
       $.evolve({ form: NewUserForm.change("email", value) }),
     SubmittedNewUser: submittedNewUser,
-    SucceededCreateUser: ($) =>
-      $.evolve({ form: emptyForm, saving: false }).run(focusInput(NameInput)),
+    SucceededCreateUser: ($, { user }) =>
+      $.evolve({
+        form: emptyForm,
+        saving: false,
+        added: user.displayName,
+      }).run(focusInput(NameInput)),
     FailedCreateUser: ($, { reason }) =>
       $.evolve({ saving: false, failure: reason }).run(focusInput(EmailInput)),
   },

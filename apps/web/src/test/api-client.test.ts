@@ -86,8 +86,23 @@ const cases: ReadonlyArray<{
     says: "The API answered with status 500",
   },
   {
+    name: "names 400, the lowest error status",
+    respond: answer(400, "<html>Bad Request</html>", "text/html"),
+    says: "The API answered with status 400",
+  },
+  {
+    name: "names 501, below the statuses a proxy answers for an API it cannot reach",
+    respond: answer(501, "", "text/plain"),
+    says: "The API answered with status 501",
+  },
+  {
     name: "says the API could not be reached when the dev server's proxy answers",
     respond: answer(502, "", "text/plain"),
+    says: "The API could not be reached",
+  },
+  {
+    name: "says the API could not be reached when a proxy times out waiting for it",
+    respond: answer(504, "", "text/plain"),
     says: "The API could not be reached",
   },
   {
@@ -108,6 +123,12 @@ const cases: ReadonlyArray<{
   {
     name: "says a page served in the API's place could not be read",
     respond: answer(200, "<!doctype html><title>Users</title>", "text/html"),
+    says: "The API sent an answer this page could not read",
+  },
+  {
+    // A redirect that fetch passes on, since it has no Location to follow.
+    name: "says a status below 400 the call does not declare could not be read",
+    respond: answer(301, "<html>Moved</html>", "text/html"),
     says: "The API sent an answer this page could not read",
   },
 ];

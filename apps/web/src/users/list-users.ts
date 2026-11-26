@@ -8,10 +8,11 @@ import { ApiClient, describeApiFailure } from "../api-client.ts";
 // A user the API returned.
 const SavedUser = Schema.TaggedStruct("SavedUser", { user: UserSchema });
 
-// A user this page asked the API to create. It shows from the submit until the
-// API refuses it, or, once the API has created it, until the list fetched after
-// the create holds the saved user. It has no id or creation time yet: the API
-// assigns both.
+// A user this page asked the API to create, shown from the submit in a list that
+// has loaded. It goes as soon as the API refuses it. Once the API has created
+// it, it stays until the list is fetched again: that list holds the saved user
+// in its place, unless the fetch fails. It has no id or creation time yet: the
+// API assigns both.
 const PendingUser = Schema.TaggedStruct("PendingUser", {
   user: CreateUserSchema,
 });

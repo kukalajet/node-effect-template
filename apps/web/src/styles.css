@@ -56,7 +56,20 @@ h1 {
 
 .new-user {
   display: grid;
-  gap: 0.5rem;
+}
+
+/* Says which user the last create added. It stays in the form while it is
+   empty, for screen readers, and takes space only once it has text. A name
+   with no spaces breaks anywhere rather than overflowing. */
+.form-status {
+  margin: 0;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.form-status:not(:empty),
+.new-user .notice {
+  margin-top: 0.5rem;
 }
 
 .new-user fieldset {

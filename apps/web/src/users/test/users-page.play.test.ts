@@ -136,7 +136,7 @@ const fakeApi = (
   });
 };
 
-// The names of the fields the page focused, oldest first.
+// The names of the fields the page asked to focus, oldest first.
 class FocusedFields extends Context.Service<
   FocusedFields,
   ReadonlyArray<string>
@@ -184,6 +184,7 @@ const emailField = HtmlLocator.label("Email");
 const addUser = HtmlLocator.role("button", { name: "Add user" });
 const adding = HtmlLocator.role("button", { name: "Adding…" });
 const alert = HtmlLocator.role("alert");
+const formStatus = HtmlLocator.role("status");
 const userRows = HtmlLocator.role("listitem");
 const saving = Locator.text("Saving…", { exact: true });
 
@@ -202,6 +203,10 @@ describe("UsersPage", () => {
 
         yield* play.expect(Locator.text("Grace Hopper")).toExist();
 
+        // The form's status is in the page before it has anything to say, so a
+        // screen reader announces what it says next.
+        yield* play.expect(formStatus).toHaveText("");
+
         yield* play.type(nameField, " Ada Lovelace ");
         yield* play.type(emailField, "ada@example.com");
         yield* play.click(addUser);
@@ -218,6 +223,10 @@ describe("UsersPage", () => {
         yield* play.expect(adding).toExist();
         yield* play.expect(nameField).toBeDisabled();
 
+        // A browser ignores focus on a field in a disabled fieldset, so the page
+        // asks for none while the create runs.
+        assert.deepStrictEqual(yield* FocusedFields, []);
+
         yield* TestClock.adjust(createLatency);
 
         yield* play.expect(userRows).toHaveCount(2);
@@ -230,6 +239,7 @@ describe("UsersPage", () => {
         yield* play.expect(nameField).toHaveValue("");
         yield* play.expect(nameField).toBeDisabled(false);
         yield* play.expect(emailField).toHaveValue("");
+        yield* play.expect(formStatus).toHaveText("Added Ada Lovelace.");
 
         // Focus is back in the form, where the next user's name goes.
         assert.deepStrictEqual(yield* FocusedFields, ["displayName"]);
@@ -374,6 +384,36 @@ describe("UsersPage", () => {
       ),
   );
 
+  it.effect(
+    "keeps a pending row for another email when a user is sent before the list comes",
+    () =>
+      Effect.gen(function* () {
+        const play = yield* HtmlPlay.make(UsersPage, {});
+
+        yield* TestClock.adjust(slowListLatency);
+        yield* play.type(nameField, "Ada Lovelace");
+        yield* play.type(emailField, "ada@example.com");
+        yield* play.click(addUser);
+        yield* TestClock.adjust(createLatency);
+        yield* play.expect(adding).toExist();
+        yield* TestClock.adjust(refetchBudget);
+        yield* play.expect(saving).toExist();
+
+        // Another user while Ada's row waits for the list: both are pending.
+        yield* play.type(nameField, "Alan Turing");
+        yield* play.type(emailField, "alan@example.com");
+        yield* play.click(addUser);
+
+        yield* play.expect(userRows).toHaveCount(3);
+        yield* play.expect(saving).toHaveCount(2);
+        yield* play.expect(Locator.text("Ada Lovelace")).toExist();
+      }).pipe(
+        Effect.provide(
+          testLayer(fakeApi([grace], { listLatency: slowListLatency })),
+        ),
+      ),
+  );
+
   it.effect("adds the first user to an empty list", () =>
     Effect.gen(function* () {
       const play = yield* HtmlPlay.make(UsersPage, {});
@@ -408,6 +448,9 @@ describe("UsersPage", () => {
       yield* play
         .expect(Locator.text("Enter an email address such as ada@example.com."))
         .toExist();
+
+      // Each error is an alert, which a screen reader reads out at once.
+      yield* play.expect(alert).toHaveCount(2);
 
       // The form stays usable, and nothing is on its way to the API.
       yield* play.expect(addUser).toBeDisabled(false);
@@ -463,8 +506,41 @@ describe("UsersPage", () => {
 
       yield* play.expect(Locator.text("Grace Hopper")).toExist();
       yield* play.expect(nameField).toHaveValue("");
+
+      // The list does not show Ada, so the form says it added her.
+      yield* play.expect(userRows).toHaveCount(1);
+      yield* play.expect(formStatus).toHaveText("Added Ada Lovelace.");
     }).pipe(
       Effect.provide(testLayer(fakeApi([grace], { listsBeforeFailure: 1 }))),
     ),
+  );
+
+  it.effect("does not call the list empty when fetching it again fails", () =>
+    Effect.gen(function* () {
+      const play = yield* HtmlPlay.make(UsersPage, {});
+
+      yield* play
+        .expect(Locator.text("No users yet. Add the first one."))
+        .toExist();
+
+      yield* play.type(nameField, "Ada Lovelace");
+      yield* play.type(emailField, "ada@example.com");
+      yield* play.click(addUser);
+      yield* TestClock.adjust(createLatency);
+
+      // The API created Ada, so the list is no longer empty, but fetching it
+      // failed: the page says only that, and the form says it added her.
+      yield* play
+        .expect(alert)
+        .toHaveText(
+          "Could not load users. The database operation could not be completed.",
+        );
+
+      yield* play
+        .expect(Locator.text("No users yet. Add the first one."))
+        .toBeAbsent();
+
+      yield* play.expect(formStatus).toHaveText("Added Ada Lovelace.");
+    }).pipe(Effect.provide(testLayer(fakeApi([], { listsBeforeFailure: 1 })))),
   );
 });

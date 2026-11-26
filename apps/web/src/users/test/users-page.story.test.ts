@@ -28,6 +28,7 @@ const typedAda = {
   }),
   saving: false,
   failure: null,
+  added: null,
 };
 
 describe("UsersPage", () => {
@@ -35,8 +36,9 @@ describe("UsersPage", () => {
     Effect.gen(function* () {
       const story = yield* Story.make(UsersPageNoDeps, {});
 
+      // The form said it added Grace, until this submit.
       story
-        .given(typedAda, { users: [] })
+        .given({ ...typedAda, added: "Grace Hopper" }, { users: [] })
         .send(UsersPageMessage.SubmittedNewUser())
         .expectExact(CreateUser);
 
@@ -45,6 +47,7 @@ describe("UsersPage", () => {
       });
 
       assert.isTrue(story.model.saving);
+      assert.isNull(story.model.added);
 
       // The success waits for the list the create invalidated.
       story.resolve(CreateUser, savedAda);
@@ -55,7 +58,8 @@ describe("UsersPage", () => {
         .loaded("users", [SavedUser.make({ user: savedAda })])
         .expectExact(HtmlCommand.Focus);
 
-      // The empty form takes focus, ready for the next user.
+      // The empty form takes focus, ready for the next user, and says which
+      // user it added.
       assert.deepStrictEqual(story.pending[0]?.command.args, {
         ref: NameInput,
       });
@@ -66,6 +70,7 @@ describe("UsersPage", () => {
         form: NewUserForm.init({ displayName: "", email: "" }),
         saving: false,
         failure: null,
+        added: "Ada Lovelace",
       });
     }),
   );
@@ -121,6 +126,7 @@ describe("UsersPage", () => {
           form: NewUserForm.init({ displayName: "Ada Lovelace", email: "" }),
           saving: false,
           failure: "A user with this email already exists",
+          added: null,
         };
 
         story
@@ -129,6 +135,29 @@ describe("UsersPage", () => {
           .expectNone();
 
         assert.isNull(story.model.failure);
+        assert.isFalse(story.model.saving);
+      }),
+  );
+
+  it.effect(
+    "drops the user it said it added when the form is sent again, even invalid",
+    () =>
+      Effect.gen(function* () {
+        const story = yield* Story.make(UsersPageNoDeps, {});
+
+        const afterSave = {
+          form: NewUserForm.init({ displayName: "", email: "" }),
+          saving: false,
+          failure: null,
+          added: "Ada Lovelace",
+        };
+
+        story
+          .given(afterSave, { users: [] })
+          .send(UsersPageMessage.SubmittedNewUser())
+          .expectNone();
+
+        assert.isNull(story.model.added);
         assert.isFalse(story.model.saving);
       }),
   );

@@ -289,16 +289,19 @@ runtime runs. The page lists the users `GET /users` returns and adds one with
 - **A query for the list.** `ListUsers` in `src/users/list-users.ts` is an
   Effect UI query: the runtime fetches it when the page renders and caches the
   result, which the view shows as loading, failed or loaded. When fetching it
-  again fails, the rows it had stay, under the reason.
+  again fails, the users it had loaded stay, under the reason.
 - **An optimistic create.** The form checks each field with the domain schema
   the API decodes it with. A valid submit issues `CreateUser`, a Command whose
-  optimistic patch puts the new user at the top of the list, marked "Saving…",
-  before the API answers. If the API refuses it, as with
+  optimistic patch puts the new user at the top of a loaded list, marked
+  "Saving…", before the API answers. If the API refuses it, as with
   `409 USER_ALREADY_EXISTS`, the row goes at once, and the form says why and
   keeps what was typed. If the API creates it, the row stays until the list is
   fetched again, and the saved user takes its place in the render that empties
-  the form; a list slower than five seconds gives the form back first. The form
-  is disabled while the create runs, and its end puts focus back in it.
+  the form. The form then says which user it added. A list slower than five
+  seconds gives the form back first, and if fetching the list fails, the row
+  goes and only the form shows the new user. The form is disabled while the
+  create runs, and its end puts focus back in it. Its errors and messages are
+  live regions, which screen readers announce.
 - **Tests without a browser.** `src/users/test/` drives `update` in a story, and
   the whole page in a play on Effect UI's test host: the real client over a fake
   `HttpClient`, whose answers `TestClock` holds back so the test can look at the
