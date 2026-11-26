@@ -236,8 +236,8 @@ Good examples already in the codebase:
 
 - `packages/database/src/users/schema.ts` explains why the insert schema refines
   `id` with a function: a plain schema would make the generated id required.
-- `apps/api/src/users/routes.ts` derives the 4 KiB body limit from the longest
-  valid email and display name.
+- `packages/api-contract/src/users/api-contract.ts` derives the 4 KiB body limit
+  from the longest valid email and display name.
 - `apps/worker/src/job-runner.ts` says what the first failure does and who
   restarts the worker afterwards.
 

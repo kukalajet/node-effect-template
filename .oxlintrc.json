@@ -148,7 +148,7 @@
           {
             "object": "process",
             "property": "env",
-            "message": "Read configuration through AppConfig (@node-effect/config), which validates it."
+            "message": "Read configuration through AppConfig (@node-effect/config), which validates it. The web app runs in a browser, where neither is available."
           },
           {
             "object": "Effect",
@@ -213,32 +213,32 @@
           {
             "object": "Logger",
             "property": "consoleJson",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consoleLogFmt",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consolePretty",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consolePrettyBrowser",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consolePrettyTty",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           },
           {
             "object": "Logger",
             "property": "consoleStructured",
-            "message": "Provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL. Tests capture logs with their own Logger.layer."
+            "message": "Server entry points provide LoggingLive from @node-effect/config, which logs JSON lines with trace ids at LOG_LEVEL; the web app keeps Effect's default logger. Tests capture logs with their own Logger.layer."
           }
         ]
       }
