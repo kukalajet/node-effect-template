@@ -8,7 +8,7 @@ import {
   HttpApiGroup,
 } from "effect/http-api";
 
-import { Api } from "../api-contract.ts";
+import { Api } from "@node-effect/api-contract";
 
 import { serveGroup } from "./group-server.fixtures.ts";
 

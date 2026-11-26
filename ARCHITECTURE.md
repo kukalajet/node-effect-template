@@ -15,6 +15,8 @@ API routes -----------+
                       +--> application --> domain
 worker jobs ----------+
 
+API routes ---------------> api-contract --> domain
+
 database adapters --------> application + domain
 database infrastructure --> config
 
@@ -28,6 +30,12 @@ The rules behind the diagram are more important than the exact folders:
 - `application` depends on `domain`. It owns use cases and contracts (ports)
   such as `UserRepository`, and the shared `PersistenceFailure` error fields,
   but no PostgreSQL, HTTP, or Node runtime code.
+- `api-contract` depends on `domain`. It owns the HTTP contract: every
+  endpoint's method, path, params, payload, success and error schemas, the
+  public error envelope, and what the server must implement for them, the
+  `RequestValidation` middleware and the JSON body limit. It holds no handlers
+  and no server code, so a client derives its calls from the same contract the
+  API serves.
 - `database` is an outbound adapter. It depends on application contracts and
   domain types, and owns PostgreSQL, Drizzle, tables, row mappings, live
   repository implementations, and the migration entry point.
@@ -67,17 +75,13 @@ apps/
     request-services-live.ts      # adapters behind the ports routes use
     access-log.ts                 # one line per request, 5xx causes redacted
     app.ts                        # HttpApi routes, OpenAPI, Swagger UI, 404 and 500 envelope
-    api-contract.ts               # root HttpApi: every group, OpenAPI metadata
-    api-schemas.ts                # public error envelope, shared responses
-    api-middleware.ts             # RequestValidation: schema errors to 400
+    api-middleware.ts             # RequestValidationLive: schema errors to 400
     request-body.ts               # size-limited JSON body reader
     http-errors.ts                # persistence failures to logged 500 or 503
     health/
-      api-contract.ts             # HttpApiGroup: endpoints and their schemas
       routes.ts                   # handlers
       test/routes.test.ts
     users/
-      api-contract.ts
       routes.ts
       test/routes.test.ts
     test/                         # composition, contract helper, error tests
@@ -97,6 +101,14 @@ packages/
   domain/
     index.ts                      # public package API
     src/user.ts                   # domain values, models, and errors
+  api-contract/
+    index.ts
+    src/api-contract.ts           # root HttpApi: every group, OpenAPI metadata
+    src/api-schemas.ts            # public error envelope, shared responses
+    src/request-validation.ts     # RequestValidation: the middleware a group declares
+    src/json-body-limit.ts        # withJsonBodyLimit: a JSON endpoint's body limit
+    src/health/api-contract.ts    # HttpApiGroup: endpoints and their schemas
+    src/users/api-contract.ts
   application/
     index.ts
     src/database-health.ts        # readiness port: does the database answer
@@ -139,8 +151,10 @@ implementation belongs in `database`.
 
 Create a feature folder inside an existing app or package when the code has the
 same boundary and runtime dependencies as its neighbors. A new API feature
-normally starts at `apps/api/src/<feature>/` with an `api-contract.ts` and a
-`routes.ts`; it does not need a new workspace package.
+normally adds `packages/api-contract/src/<feature>/api-contract.ts` and
+`apps/api/src/<feature>/routes.ts`; it does not need a new workspace package.
+The contract is a package of its own because the API and the clients that call
+it both use it.
 
 Do not create a package merely because a file became long. First split the file
 by responsibility within its existing boundary. Conversely, do not put reusable
@@ -151,9 +165,9 @@ today; ownership, rather than line count, decides the location.
 
 | Code being added                                                           | Location                                                                                                 |
 | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Endpoint: method, path, params, payload, success and error schemas         | `apps/api/src/<feature>/api-contract.ts`, added to the root `api-contract.ts`                            |
+| Endpoint: method, path, params, payload, success and error schemas         | `packages/api-contract/src/<feature>/api-contract.ts`, added to the root `api-contract.ts` beside it     |
 | Handler: calling ports and mapping their errors to responses               | `apps/api/src/<feature>/routes.ts`, provided in `apps/api/src/app.ts`                                    |
-| Public error response or schema shared by API groups                       | `apps/api/src/api-schemas.ts`                                                                            |
+| Public error response or schema shared by API groups                       | `packages/api-contract/src/api-schemas.ts`                                                               |
 | Mapping a shared failure, such as a persistence failure, to HTTP           | `apps/api/src/http-errors.ts`                                                                            |
 | What the API logs for each request                                         | `apps/api/src/access-log.ts`                                                                             |
 | Log format, level, or another logger                                       | `packages/config/src/logging.ts`                                                                         |
@@ -241,12 +255,13 @@ available so a test can arrange and inspect rows.
 ## HTTP API contracts
 
 The API is schema-first. Each feature declares an `HttpApiGroup` in its
-`api-contract.ts`: every endpoint's method, path, params, payload, success
-schema with its status, and every error schema it can return. The root
-`api-contract.ts` combines the groups into one `HttpApi` with OpenAPI metadata.
-`routes.ts` implements the group with `HttpApiBuilder.group`, and `app.ts`
-serves the API with its OpenAPI document at `/openapi.json` and Swagger UI at
-`/docs`. `scripts/export-openapi.ts` prints the same document.
+`api-contract.ts` in `packages/api-contract`: every endpoint's method, path,
+params, payload, success schema with its status, and every error schema it can
+return. The root `api-contract.ts` there combines the groups into one `HttpApi`
+with OpenAPI metadata. The API's `routes.ts` implements the group with
+`HttpApiBuilder.group`, and `app.ts` serves the API with its OpenAPI document at
+`/openapi.json` and Swagger UI at `/docs`. `scripts/export-openapi.ts` prints
+the same document.
 
 Errors follow these conventions:
 
@@ -265,9 +280,10 @@ Errors follow these conventions:
   `payload` schema, its byte limit with `.pipe(withJsonBodyLimit(bytes))`, and
   `PayloadTooLargeResponse` and `UnsupportedMediaTypeResponse` among its errors,
   behind `RequestValidation`. Its handler is registered with
-  `.handleRaw(name, jsonBodyHandler(handler))`; both helpers come from
-  `request-body.ts`, and nothing else reads a body. `jsonBodyHandler` refuses a
-  request whose media type is not `application/json` before reading it
+  `.handleRaw(name, jsonBodyHandler(handler))`. `withJsonBodyLimit` comes from
+  `api-contract` and `jsonBodyHandler` from the API's `request-body.ts`, and
+  nothing else reads a body. `jsonBodyHandler` refuses a request whose media
+  type is not `application/json` before reading it
   (`415 UNSUPPORTED_MEDIA_TYPE`), because a browser can post `text/plain`, or a
   body with no content type, to another site without a CORS preflight. It then
   decodes the body with that payload schema, stops reading past the limit
@@ -299,8 +315,8 @@ Errors follow these conventions:
   `CreateUserSchema`, `UserSchema`) and live in `domain`.
 - HTTP schemas describe transport-only shapes such as path parameters, query
   strings, headers, responses, and error envelopes. They live in the feature's
-  `api-contract.ts`, or in `api-schemas.ts` when shared. Reuse domain schemas
-  inside them instead of duplicating business constraints.
+  `api-contract.ts` in `api-contract`, or in its `api-schemas.ts` when shared.
+  Reuse domain schemas inside them instead of duplicating business constraints.
 - Drizzle tables and generated select/insert row schemas describe persistence.
   They live in `database` and are not the public business model.
 - Configuration schemas describe environment input and live in `config`. A

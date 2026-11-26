@@ -8,13 +8,15 @@ import {
   HttpApiGroup,
 } from "effect/http-api";
 
-import { RequestValidation } from "../api-middleware.ts";
 import {
   BadRequestResponse,
   PayloadTooLargeResponse,
+  RequestValidation,
   UnsupportedMediaTypeResponse,
-} from "../api-schemas.ts";
-import { jsonBodyHandler, withJsonBodyLimit } from "../request-body.ts";
+  withJsonBodyLimit,
+} from "@node-effect/api-contract";
+
+import { jsonBodyHandler } from "../request-body.ts";
 
 const NoteSchema = Schema.Struct({ text: Schema.String });
 

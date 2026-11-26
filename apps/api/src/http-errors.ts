@@ -1,14 +1,13 @@
 import { Effect } from "effect";
 
 import {
+  DatabaseErrorResponse,
+  DatabaseUnavailableResponse,
+} from "@node-effect/api-contract";
+import {
   type PersistenceFailure,
   persistenceFailureReport,
 } from "@node-effect/application";
-
-import {
-  DatabaseErrorResponse,
-  DatabaseUnavailableResponse,
-} from "./api-schemas.ts";
 
 // The cause can carry SQL, parameters, and stored values, so only the safe
 // report reaches the log, the same one entry points log, and the response says

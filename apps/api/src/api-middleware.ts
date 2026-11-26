@@ -1,12 +1,10 @@
 import { Effect } from "effect";
 import { type HttpApiError, HttpApiMiddleware } from "effect/http-api";
 
-import { BadRequestResponse } from "./api-schemas.ts";
-
-class RequestValidation extends HttpApiMiddleware.Service<RequestValidation>()(
-  "@node-effect/api/RequestValidation",
-  { error: BadRequestResponse.schema },
-) {}
+import {
+  BadRequestResponse,
+  RequestValidation,
+} from "@node-effect/api-contract";
 
 // Request parts the client sent. The other kinds are failures to encode the
 // server's own response, which stay internal errors.
@@ -28,4 +26,4 @@ const RequestValidationLive = HttpApiMiddleware.layerSchemaErrorTransform(
   },
 );
 
-export { RequestValidation, RequestValidationLive };
+export { RequestValidationLive };

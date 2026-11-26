@@ -2,8 +2,12 @@ import { Effect, Layer } from "effect";
 import { HttpEffect, HttpRouter, HttpServerResponse } from "effect/http";
 import { HttpApiBuilder, HttpApiSwagger } from "effect/http-api";
 
-import { Api } from "./api-contract.ts";
-import { InternalErrorResponse, NotFoundResponse } from "./api-schemas.ts";
+import {
+  Api,
+  InternalErrorResponse,
+  NotFoundResponse,
+} from "@node-effect/api-contract";
+
 import { HealthHandlers } from "./health/routes.ts";
 import { UserHandlers } from "./users/routes.ts";
 

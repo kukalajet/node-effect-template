@@ -3,10 +3,10 @@ import { Effect, Layer, Logger } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { OpenApi } from "effect/http-api";
 
+import { Api } from "@node-effect/api-contract";
 import { DatabaseHealth, UserRepository } from "@node-effect/application";
 
 import { accessLog } from "../access-log.ts";
-import { Api } from "../api-contract.ts";
 import { ApiRoutes } from "../app.ts";
 
 const RequestServicesTest = Layer.mergeAll(

@@ -1,20 +1,19 @@
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 
-import { UserRepository } from "@node-effect/application";
-import type { CreateUser } from "@node-effect/domain";
-
-import { Api } from "../api-contract.ts";
-import { RequestValidationLive } from "../api-middleware.ts";
-import { databaseFailure } from "../http-errors.ts";
-import { jsonBodyHandler } from "../request-body.ts";
-
 import {
+  Api,
   UserAlreadyExistsResponse,
   type UserListQuery,
   UserNotFoundResponse,
   type UserParams,
-} from "./api-contract.ts";
+} from "@node-effect/api-contract";
+import { UserRepository } from "@node-effect/application";
+import type { CreateUser } from "@node-effect/domain";
+
+import { RequestValidationLive } from "../api-middleware.ts";
+import { databaseFailure } from "../http-errors.ts";
+import { jsonBodyHandler } from "../request-body.ts";
 
 const listUsers = ({ limit }: typeof UserListQuery.Type) =>
   Effect.gen(function* () {

@@ -1,6 +1,6 @@
 import { OpenApi } from "effect/http-api";
 
-import { Api } from "../apps/api/src/api-contract.ts";
+import { Api } from "../packages/api-contract/index.ts";
 
 // Prints the API's OpenAPI document, for generating clients or diffing the
 // contract in review: `pnpm --silent openapi > openapi.json`.

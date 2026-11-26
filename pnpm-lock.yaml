@@ -241,6 +241,9 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.5(effect@4.1.5)
+      '@node-effect/api-contract':
+        specifier: workspace:*
+        version: link:../../packages/api-contract
       '@node-effect/application':
         specifier: workspace:*
         version: link:../../packages/application
@@ -271,6 +274,15 @@ importers:
       '@node-effect/database':
         specifier: workspace:*
         version: link:../../packages/database
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.5
+
+  packages/api-contract:
+    dependencies:
+      '@node-effect/domain':
+        specifier: workspace:*
+        version: link:../domain
       effect:
         specifier: 'catalog:'
         version: 4.1.5
